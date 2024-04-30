@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 require_once __DIR__ . '/common/EcpHelper.php';
 
 class Signer
@@ -82,7 +84,7 @@ class Signer
      *
      * @return string
      */
-    public static function getPaymentPageHost()
+    public static function getPaymentPageHost(): string
     {
         $host = getenv('PAYMENTPAGE_HOST');
 
@@ -92,7 +94,7 @@ class Signer
     /**
      * @return array
      */
-    public function getConfig()
+    public function getConfig(): array
     {
         $isTest = $this->isTest;
         $projectId = $this->projectId;
@@ -114,7 +116,7 @@ class Signer
     /**
      * @return string
      */
-    public function getCardRedirectUrl($cart)
+    public function getCardRedirectUrl(Cart $cart): string
     {
         $config = $this->getConfig();
 
@@ -137,10 +139,10 @@ class Signer
      * @param array $config
      * @return array
      */
-    protected function createUrlData($cart, array $config)
+    protected function createUrlData(Cart $cart, array $config): array
     {
         $paymentAmount = $cart->getOrderTotal() * 100;
-        $orderId = Order::getOrderByCartId($cart->id);
+        $orderId = Order::getIdByCartId($cart->id);
         $paymentId = $orderId;
 
         if ($config['isTest']) {
@@ -188,14 +190,14 @@ class Signer
         array $ignoreParamKeys = [],
         $currentLevel = 1,
         $prefix = ''
-    )
+    ): array
     {
         $paramsToSign = [];
         foreach ($params as $key => $value) {
             if ((in_array($key, $ignoreParamKeys) && $currentLevel == 1)) {
                 continue;
             }
-            $paramKey = ($prefix ? $prefix . ':' : '') . $key;
+            $paramKey = ($prefix ? $prefix . ':' : '') . str_replace(':', '::', $key);
             if (is_array($value)) {
                 if ($currentLevel >= 3) {
                     $paramsToSign[$paramKey] = (string)$paramKey.':';
@@ -218,7 +220,8 @@ class Signer
         return $paramsToSign;
     }
 
-    private function signData(array $data, $skipParams) {
+    private function signData(array $data, array $skipParams): string
+    {
         $config = $this->getConfig();
         $paramsToSign = $this->getParamsToSign($data, $skipParams);
         $stringToSign = $this->getStringToSign($paramsToSign);
@@ -226,12 +229,13 @@ class Signer
         return base64_encode(hash_hmac('sha512', $stringToSign, $secretKey, true));
     }
 
-    private function getStringToSign(array $paramsToSign)
+    private function getStringToSign(array $paramsToSign): string
     {
         return implode(';', $paramsToSign);
     }
 
-    public function checkSignature(array $data) {
+    public function checkSignature(array $data): bool
+    {
         $signature = $data['signature'];
         unset($data['signature']);
         return $this->signData($data, []) === $signature;

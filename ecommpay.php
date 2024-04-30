@@ -662,9 +662,9 @@ class ecommpay extends PaymentModule
         return $this->options[self::ECOMMPAY_IS_TEST];
     }
 
-    public function loadOrderFromCart($cart)
+    public function loadOrderFromCart(Cart $cart)
     {
-        $orderId = Order::getOrderByCartId($cart->id);
+        $orderId = Order::getIdByCartId($cart->id);
         if (!$orderId) {
             return null;
         }

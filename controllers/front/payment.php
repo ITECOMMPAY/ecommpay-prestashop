@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 /**
  * @since 1.5.0
@@ -92,12 +93,12 @@ class EcommpayPaymentModuleFrontController extends ModuleFrontController
         $this->setTemplate('payment_execution.tpl');
     }
 
-    protected function isAjax()
+    protected function isAjax(): bool
     {
         return Tools::getValue('is_ajax');
     }
 
-    protected function sendAjax(array $data)
+    protected function sendAjax(array $data): void
     {
         die(json_encode($data));
     }
@@ -106,9 +107,9 @@ class EcommpayPaymentModuleFrontController extends ModuleFrontController
      * Creates order for provided cart if it does not exist
      * @param $cart
      */
-    protected function createOrderIfRequired($cart)
+    protected function createOrderIfRequired(Cart $cart): void
     {
-        $orderId = Order::getOrderByCartId($cart->id);
+        $orderId = Order::getIdByCartId($cart->id);
         if ($orderId) {
             $order = new Order($orderId);
             if (Validate::isLoadedObject($order)) {

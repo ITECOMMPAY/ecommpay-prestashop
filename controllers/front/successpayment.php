@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 /**
  * @since 1.5.0
@@ -48,7 +49,7 @@ class EcommpaySuccessPaymentModuleFrontController extends ModuleFrontController
     /**
      * @return bool
      */
-    protected function isTestMode()
+    protected function isTestMode(): bool
     {
         return
             isset($_GET['test'])
@@ -61,7 +62,7 @@ class EcommpaySuccessPaymentModuleFrontController extends ModuleFrontController
     /**
      * @return $this
      */
-    protected function findOrder()
+    protected function findOrder(): EcommpaySuccessPaymentModuleFrontController
     {
         $orderId = intval(isset($_GET['order_id']) ? (int)$_GET['order_id'] : 0);
 
@@ -75,7 +76,7 @@ class EcommpaySuccessPaymentModuleFrontController extends ModuleFrontController
         return $this;
     }
 
-    protected function getOrder()
+    protected function getOrder(): ?Order
     {
         if (empty($this->currentOrder)) {
             return null;
@@ -84,7 +85,7 @@ class EcommpaySuccessPaymentModuleFrontController extends ModuleFrontController
         return $this->currentOrder;
     }
 
-    protected function changeTestOrderState()
+    protected function changeTestOrderState(): void
     {
         $order = $this->getOrder();
         if (!$order) {
@@ -100,7 +101,7 @@ class EcommpaySuccessPaymentModuleFrontController extends ModuleFrontController
         $this->status = $this->module->l('Your order has been processed by Ecommpay');
     }
 
-    protected function setStatusFromRealOrder()
+    protected function setStatusFromRealOrder(): void
     {
         $order = $this->getOrder();
         if (!$order) {
@@ -117,7 +118,7 @@ class EcommpaySuccessPaymentModuleFrontController extends ModuleFrontController
         }
     }
 
-    protected function addTestTransactionsInfo($order)
+    protected function addTestTransactionsInfo(Order $order): void
     {
         $this->module->addTransactionsInfo($order, array(
             'payment' => array(

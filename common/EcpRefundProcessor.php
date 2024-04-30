@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 require_once __DIR__ . '/EcpSigner.php';
 require_once __DIR__ . '/EcpRefundResult.php';
@@ -11,6 +12,8 @@ class EcpRefundProcessor
     const ECOMMPAY_GATE_PROTO = 'https';
     const ECOMMPAY_GATE_HOST = 'api.ecommpay.com';
     const GATE_REFUND_ENDPOINT = '/v2/payment/card/refund';
+    const REFUND_OPERATION_TYPE = 'refund';
+    const REVERSAL_OPERATION_TYPE = 'reversal';
     /**
      * @var int
      */
@@ -31,7 +34,7 @@ class EcpRefundProcessor
      * @param string $secretKey
      * @param string $paymentPrefix
      */
-    public function __construct($projectId, $secretKey, $paymentPrefix = '')
+    public function __construct(int $projectId, string $secretKey, string $paymentPrefix = '')
     {
         $this->projectId = (int)$projectId;
         $this->signer = new EcpSigner($secretKey);
@@ -47,7 +50,7 @@ class EcpRefundProcessor
      * @return EcpRefundResult
      * @throws Exception
      */
-    public function processRefund($orderId, $amount, $currency, $reason = '')
+    public function processRefund(string $orderId, float $amount, string $currency, string $reason = ''): EcpRefundResult
     {
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, self::getGateEndpoint());
@@ -98,17 +101,17 @@ class EcpRefundProcessor
      * @return EcpCallback
      * @throws Exception
      */
-    public function processCallback($rawData)
+    public function processCallback(string $rawData): EcpCallback
     {
         $data = json_decode($rawData, true);
         if ($data === null) {
             throw new Exception('Malformed callback data.');
         }
         if (empty($data['operation']) || empty($data['operation']['type']) ||
-            !in_array($data['operation']['type'], ['reversal', 'refund'])
+            !in_array($data['operation']['type'], [self::REFUND_OPERATION_TYPE, self::REVERSAL_OPERATION_TYPE])
         ) {
             throw new EcpOperationException('Invalid or missed operation type, expected "refund"'.
-                ' or "partially refunded".');
+                ' or "reversal".');
         }
         if (!$this->signer->checkSignature($data)) {
             throw new Exception('Wrong data signature.');
@@ -134,10 +137,10 @@ class EcpRefundProcessor
         return $callback;
     }
 
-    protected function getGateEndpoint()
+    protected function getGateEndpoint(): string
     {
-        $proto = getenv('ECOMMPAY_GATE_PROTO') ? getenv('ECOMMPAY_GATE_PROTO') : self::ECOMMPAY_GATE_PROTO;
-        $host = getenv('ECOMMPAY_GATE_HOST') ? getenv('ECOMMPAY_GATE_HOST') : self::ECOMMPAY_GATE_HOST;
+        $proto = getenv('ECOMMPAY_GATE_PROTO') ?: self::ECOMMPAY_GATE_PROTO;
+        $host = getenv('ECOMMPAY_GATE_HOST') ?: self::ECOMMPAY_GATE_HOST;
 
         return $proto.'://'.$host.self::GATE_REFUND_ENDPOINT;
     }

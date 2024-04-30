@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 /**
  * @since 1.5.0
@@ -52,7 +53,7 @@ class EcommpayCallbackModuleFrontController extends ModuleFrontController
         die('signature invalid');
     }
 
-    protected function findOrder($orderId)
+    protected function findOrder(string $orderId): EcommpayCallbackModuleFrontController
     {
         $order = new Order($orderId);
 
@@ -66,7 +67,7 @@ class EcommpayCallbackModuleFrontController extends ModuleFrontController
         return $this;
     }
 
-    protected function setOrderState($state, array $data)
+    protected function setOrderState(string $state, array $data): void
     {
         if (empty($this->currentOrder)) {
             $this->log('Skipping order creation, order does not exist');
@@ -86,7 +87,7 @@ class EcommpayCallbackModuleFrontController extends ModuleFrontController
         $this->log(sprintf('Order %s exists, state already is %s', $order->id, $state));
     }
 
-    protected function log($name, $data = null)
+    protected function log(string $name, mixed $data = null): void
     {
         $message = sprintf('CALLBACK: %s', $name);
         if ($data !== null) {

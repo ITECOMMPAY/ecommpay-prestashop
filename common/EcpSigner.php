@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 class EcpSigner
 {
@@ -10,7 +11,7 @@ class EcpSigner
     /**
      * @param $secretKey
      */
-    public function __construct($secretKey)
+    public function __construct(string $secretKey)
     {
         $this->secretKey = $secretKey;
     }
@@ -22,7 +23,7 @@ class EcpSigner
      * @param string $prefix
      * @return array
      */
-    private function getParamsToSign(array $params, array $ignoreParamKeys = [], $currentLevel = 1, $prefix = '')
+    private function getParamsToSign(array $params, array $ignoreParamKeys = [], int $currentLevel = 1, string $prefix = ''): array
     {
         $paramsToSign = [];
         foreach ($params as $key => $value) {
@@ -56,7 +57,7 @@ class EcpSigner
      * @param array $data
      * @return string
      */
-    public function getSignature(array $data)
+    public function getSignature(array $data): string
     {
         $paramsToSign = $this->getParamsToSign($data);
         $stringToSign = $this->getStringToSign($paramsToSign);
@@ -68,7 +69,7 @@ class EcpSigner
      * @param array $paramsToSign
      * @return string
      */
-    private function getStringToSign(array $paramsToSign)
+    private function getStringToSign(array $paramsToSign): string
     {
         return implode(';', $paramsToSign);
     }
@@ -77,7 +78,7 @@ class EcpSigner
      * @param array $data
      * @return bool
      */
-    public function checkSignature(array $data)
+    public function checkSignature(array $data): bool
     {
         if (!array_key_exists('signature', $data)) {
             return false;

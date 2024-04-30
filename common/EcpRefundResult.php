@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 class EcpRefundResult
 {
@@ -45,7 +46,7 @@ class EcpRefundResult
     /**
      * @return bool
      */
-    public function isSuccess()
+    public function isSuccess(): bool
     {
         return strtolower($this->status) === 'success';
     }
@@ -53,7 +54,7 @@ class EcpRefundResult
     /**
      * @return string|null
      */
-    public function getRefundExternalId()
+    public function getRefundExternalId(): ?string
     {
         return $this->refundExternalId;
     }
@@ -61,7 +62,7 @@ class EcpRefundResult
     /**
      * @return string|null
      */
-    public function getOrderId()
+    public function getOrderId(): ?string
     {
         return $this->orderId;
     }
@@ -69,7 +70,7 @@ class EcpRefundResult
     /**
      * @return null|string
      */
-    public function getDescription()
+    public function getDescription(): ?string
     {
         return $this->description;
     }
@@ -77,16 +78,12 @@ class EcpRefundResult
     /**
      * @return null|string
      */
-    public function getPaymentStatus()
+    public function getPaymentStatus(): ?string
     {
         return $this->paymentStatus;
     }
 
-    /**
-     * @param string $paymentStatus
-     * @return EcpRefundResult
-     */
-    public function setPaymentStatus($paymentStatus)
+    public function setPaymentStatus(?string $paymentStatus): EcpRefundResult
     {
         $this->paymentStatus = $paymentStatus;
         return $this;

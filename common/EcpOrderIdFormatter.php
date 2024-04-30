@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 class EcpOrderIdFormatter
 {
@@ -7,7 +8,7 @@ class EcpOrderIdFormatter
      * @param string $prefix
      * @return string
      */
-    public static function addOrderPrefix($orderId, $prefix)
+    public static function addOrderPrefix(string $orderId, string $prefix): string
     {
         return $prefix . '&' . $_SERVER['SERVER_NAME'] . '&' . $orderId;
     }
@@ -17,7 +18,7 @@ class EcpOrderIdFormatter
      * @param string $prefix
      * @return mixed
      */
-    public static function removeOrderPrefix($orderId, $prefix)
+    public static function removeOrderPrefix(string $orderId, string $prefix): string
     {
         return preg_replace('/^' . $prefix . '&' . preg_quote($_SERVER['SERVER_NAME']) . '&/', '', $orderId);
     }

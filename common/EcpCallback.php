@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 class EcpCallback
 {
@@ -38,12 +39,12 @@ class EcpCallback
     private $paymentId;
 
     /**
-     * @var int
+     * @var int|null
      */
     private $sumInitialAmount;
 
     /**
-     * @var string
+     * @var string|null
      */
     private $sumInitialCurrency;
 
@@ -57,24 +58,25 @@ class EcpCallback
         $this->callback = $callbackData;
         $this->paymentStatus = $callbackData['payment']['status'];
         $this->paymentId = $callbackData['payment']['id'];
-        $this->requestId = $callbackData['operation']['request_id'];
-        $this->operationStatus = $callbackData['operation']['status'];
-        $this->description = $callbackData['operation']['message'];
-        $this->sumInitialAmount = $callbackData['operation']['sum_initial']['amount'];
-        $this->sumInitialCurrency = $callbackData['operation']['sum_initial']['currency'];
+        $this->requestId = $callbackData['operation']['request_id'] ?? null;
+        $this->operationStatus = $callbackData['operation']['status'] ?? null;
+        $this->description = $callbackData['operation']['message'] ?? null;
+        $this->sumInitialAmount = $callbackData['operation']['sum_initial']['amount'] ?? null;
+        $this->sumInitialCurrency = $callbackData['operation']['sum_initial']['currency'] ?? null;
     }
 
     /**
      * @return array
      */
-    public function getCallback() {
+    public function getCallback(): array
+    {
         return $this->callback;
     }
 
     /**
      * @return bool
      */
-    public function isSuccess()
+    public function isSuccess(): bool
     {
         return strtolower($this->operationStatus) === 'success';
     }
@@ -82,19 +84,20 @@ class EcpCallback
     /**
      * @return string|null
      */
-    public function getRequestId()
+    public function getRequestId(): ?string
     {
         return $this->requestId;
     }
 
-    public function setOrderId(string $orderId) {
+    public function setOrderId(string $orderId): void
+    {
         $this->orderId = $orderId;
     }
 
     /**
      * @return string|null
      */
-    public function getOrderId()
+    public function getOrderId(): ?string
     {
         return $this->orderId;
     }
@@ -102,15 +105,15 @@ class EcpCallback
     /**
      * @return null|string
      */
-    public function getDescription()
+    public function getDescription(): ?string
     {
         return $this->description;
     }
 
     /**
-     * @return null|string
+     * @return string
      */
-    public function getPaymentStatus()
+    public function getPaymentStatus(): string
     {
         return $this->paymentStatus;
     }
@@ -118,7 +121,7 @@ class EcpCallback
     /**
      * @return string
      */
-    public function getPaymentId()
+    public function getPaymentId(): string
     {
         return $this->paymentId;
     }
@@ -126,11 +129,11 @@ class EcpCallback
     /**
      * @return float|int
      */
-    public function getSumInitialAmount($minor=false)
+    public function getSumInitialAmount(bool $minor = false): mixed
     {
         if ($minor) {
             return $this->sumInitialAmount;
         }
-        return (float)$this->sumInitialAmount/100;
+        return (float)$this->sumInitialAmount / 100;
     }
 }

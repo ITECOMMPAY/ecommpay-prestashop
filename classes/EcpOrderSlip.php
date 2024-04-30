@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 class EcpOrderSlip extends OrderSlip
 {
@@ -36,21 +37,22 @@ class EcpOrderSlip extends OrderSlip
     );
 
     /**
-     * @param string $external_id
+     * @param string $externalId
+     * 
      * @return EcpOrderSlip|null
+     * 
+     * @throws PrestaShopDatabaseException
+     * @throws PrestaShopException
      */
-    public static function findByExternalId($external_id)
+    public static function findByExternalId(string $externalId): ?EcpOrderSlip
     {
-        $espaced_external_id = pSQL($external_id);
-        $table_name = _DB_PREFIX_ . self::$definition['table'];
-        $id = Db::getInstance()->getValue("
-            SELECT id_order_slip
-            FROM $table_name
-            WHERE external_id = '$espaced_external_id'");
-        if (!$id) {
+        $query = (new DbQuery())
+            ->select('id_order_slip')
+            ->from(self::$definition['table'])
+            ->where("external_id = '" . pSQL($externalId) . "'");
+        if (!$id = Db::getInstance()->getValue($query)) {
             return null;
         }
-
         return new EcpOrderSlip($id);
     }
 }
