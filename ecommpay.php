@@ -29,6 +29,7 @@ if (!defined('_PS_VERSION_')) {
 
 require_once __DIR__ . '/Signer.php';
 require_once __DIR__ . '/common/EcpHelper.php';
+require_once __DIR__ . '/common/EcpOrderStates.php';
 
 
 class ecommpay extends PaymentModule
@@ -71,7 +72,7 @@ class ecommpay extends PaymentModule
         $this->displayName = $this->l('Ecommpay payments');
         $this->description = $this->l('Online payment via Ecommpay');
         $this->author = 'Ecommpay';
-        $this->version = '1.0.1';
+        $this->version = '1.0.2';
         $this->tab = 'payments_gateways';
         $this->confirmUninstall = $this->l('Are you sure you want to uninstall?');
         $this->need_instance = 1;
@@ -100,7 +101,7 @@ class ecommpay extends PaymentModule
         require_once('common/EcpRefundProcessor.php');
         require_once('classes/EcpOrderSlip.php');
         $this->refund_processor = new EcpRefundProcessor(
-            $this->options[self::ECOMMPAY_IS_TEST] ? Signer::ECOMMPAY_TEST_PROJECT_ID : $this->options[self::ECOMMPAY_PROJECT_ID],
+            $this->options[self::ECOMMPAY_IS_TEST] ? Signer::ECOMMPAY_TEST_PROJECT_ID : (int)$this->options[self::ECOMMPAY_PROJECT_ID],
             $this->options[self::ECOMMPAY_IS_TEST] ? Signer::ECOMMPAY_TEST_SECRET_KEY : $this->options[self::ECOMMPAY_SECRET_KEY],
             $this->options[self::ECOMMPAY_IS_TEST] ? Signer::CMS_PREFIX : ''
         );
@@ -151,7 +152,8 @@ class ecommpay extends PaymentModule
 
     public function install()
     {
-        $this->addOrderStates();
+        $ecpOrderState = new EcpOrderStates($this->name);
+        $ecpOrderState->addOrderStates();
 
         Configuration::updateValue(self::ECOMMPAY_IS_TEST, 1);
         Configuration::updateValue(self::ECOMMPAY_IS_POPUP, 0);
@@ -266,122 +268,6 @@ class ecommpay extends PaymentModule
         $imagePath = dirname(dirname(dirname(__FILE__))) . '/img/os/' . $image;
         if (file_exists($imagePath)) {
             @copy($imagePath, dirname(dirname(dirname(__FILE__))) . '/img/os/' . $orderState->id . '.gif');
-        }
-    }
-
-    /**
-     * Add Order Statuses
-     */
-    private function addOrderStates()
-    {
-        // Pending
-        if (!(Configuration::get('PS_OS_ECOMMPAY_PENDING') > 0)) {
-            $OrderState = new OrderState(null, Configuration::get('PS_LANG_DEFAULT'));
-            $OrderState->name = 'Ecommpay: Pending';
-            $OrderState->invoice = false;
-            $OrderState->send_email = true;
-            $OrderState->module_name = $this->name;
-            $OrderState->color = '#4169E1';
-            $OrderState->unremovable = true;
-            $OrderState->hidden = false;
-            $OrderState->logable = true;
-            $OrderState->delivery = false;
-            $OrderState->shipped = false;
-            $OrderState->paid = false;
-            $OrderState->deleted = false;
-            $OrderState->template = 'preparation';
-            $OrderState->add();
-
-            Configuration::updateValue('PS_OS_ECOMMPAY_PENDING', $OrderState->id);
-            $this->copyOrderStateImage($OrderState, '9.gif');
-        }
-
-        // Approved
-        if (!(Configuration::get('PS_OS_ECOMMPAY_APPROVED') > 0)) {
-            $OrderState = new OrderState(null, Configuration::get('PS_LANG_DEFAULT'));
-            $OrderState->name = 'Ecommpay: Approved';
-            $OrderState->invoice = true;
-            $OrderState->send_email = true;
-            $OrderState->module_name = $this->name;
-            $OrderState->color = '#32CD32';
-            $OrderState->unremovable = true;
-            $OrderState->hidden = false;
-            $OrderState->logable = true;
-            $OrderState->delivery = false;
-            $OrderState->shipped = false;
-            $OrderState->paid = false; // avoid duplicate payments
-            $OrderState->deleted = false;
-            $OrderState->template = 'payment';
-            $OrderState->add();
-
-            Configuration::updateValue('PS_OS_ECOMMPAY_APPROVED', $OrderState->id);
-            $this->copyOrderStateImage($OrderState, '10.gif');
-        }
-
-        // Declined
-        if (!(Configuration::get('PS_OS_ECOMMPAY_DECLINED') > 0)) {
-            $OrderState = new OrderState(null, Configuration::get('PS_LANG_DEFAULT'));
-            $OrderState->name = 'Ecommpay: Declined';
-            $OrderState->invoice = false;
-            $OrderState->send_email = true;
-            $OrderState->module_name = $this->name;
-            $OrderState->color = '#DC143C';
-            $OrderState->unremovable = true;
-            $OrderState->hidden = false;
-            $OrderState->logable = true;
-            $OrderState->delivery = false;
-            $OrderState->shipped = false;
-            $OrderState->paid = false;
-            $OrderState->deleted = false;
-            $OrderState->template = 'payment_error';
-            $OrderState->add();
-
-            Configuration::updateValue('PS_OS_ECOMMPAY_DECLINED', $OrderState->id);
-            $this->copyOrderStateImage($OrderState, '8.gif');
-        }
-
-        // Refunded
-        if (!(Configuration::get('PS_OS_ECOMMPAY_REFUNDED') > 0)) {
-            $OrderState = new OrderState(null, Configuration::get('PS_LANG_DEFAULT'));
-            $OrderState->name = 'Ecommpay: Refund';
-            $OrderState->invoice = false;
-            $OrderState->send_email = true;
-            $OrderState->module_name = $this->name;
-            $OrderState->color = '#ec2e15';
-            $OrderState->unremovable = true;
-            $OrderState->hidden = false;
-            $OrderState->logable = true;
-            $OrderState->delivery = false;
-            $OrderState->shipped = false;
-            $OrderState->paid = false;
-            $OrderState->deleted = false;
-            $OrderState->template = 'refund';
-            $OrderState->add();
-
-            Configuration::updateValue('PS_OS_ECOMMPAY_REFUNDED', $OrderState->id);
-            $this->copyOrderStateImage($OrderState, '8.gif');
-        }
-
-        // Partially refunded
-        if (!(Configuration::get('PS_OS_ECOMMPAY_PT_REFUNDED') > 0)) {
-            $OrderState = new OrderState(null, Configuration::get('PS_LANG_DEFAULT'));
-            $OrderState->name = 'Ecommpay: Partially refunded';
-            $OrderState->invoice = false;
-            $OrderState->send_email = true;
-            $OrderState->module_name = $this->name;
-            $OrderState->color = '#ec2e15';
-            $OrderState->unremovable = true;
-            $OrderState->hidden = false;
-            $OrderState->logable = true;
-            $OrderState->delivery = false;
-            $OrderState->shipped = false;
-            $OrderState->paid = false;
-            $OrderState->deleted = false;
-            $OrderState->template = 'refund';
-            $OrderState->add();
-
-            Configuration::updateValue('PS_OS_ECOMMPAY_PT_REFUNDED', $OrderState->id);
-            $this->copyOrderStateImage($OrderState, '8.gif');
         }
     }
 

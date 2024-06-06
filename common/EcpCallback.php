@@ -1,8 +1,28 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/EcpOrderStates.php';
+
 class EcpCallback
 {
+    public const PAYMENT_STATUS_SUCCESS = 'success';
+    public const PAYMENT_STATUS_DECLINE = 'decline';
+    public const PAYMENT_STATUS_AWAITING_3DS_RESULT = 'awaiting 3ds result';
+    public const PAYMENT_STATUS_EXTERNAL_ERROR = 'external error';
+    public const PAYMENT_STATUS_INTERNAL_ERROR = 'internal error';
+    public const PAYMENT_STATUS_AWAITING_CUSTOMER = 'awaiting customer';
+    public const PAYMENT_STATUS_EXPIRED = 'expired';
+
+    public const STATUS_MAP = [
+        self::PAYMENT_STATUS_SUCCESS => EcpOrderStates::APPROVED_STATE,
+        self::PAYMENT_STATUS_DECLINE => EcpOrderStates::DECLINED_STATE,
+        self::PAYMENT_STATUS_AWAITING_3DS_RESULT => EcpOrderStates::PENGING_STATE,
+        self::PAYMENT_STATUS_EXTERNAL_ERROR => EcpOrderStates::DECLINED_STATE,
+        self::PAYMENT_STATUS_INTERNAL_ERROR => EcpOrderStates::DECLINED_STATE,
+        self::PAYMENT_STATUS_AWAITING_CUSTOMER => EcpOrderStates::DECLINED_STATE,
+        self::PAYMENT_STATUS_EXPIRED => EcpOrderStates::DECLINED_STATE
+    ];
+
     /**
      * @var array
      */

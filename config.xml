@@ -2,7 +2,7 @@
 <module>
     <name>ecommpay</name>
     <displayName><![CDATA[Ecommpay payments]]></displayName>
-    <version><![CDATA[1.0.0]]></version>
+    <version><![CDATA[1.0.2]]></version>
     <description><![CDATA[Online payment via Ecommpay]]></description>
     <author><![CDATA[Ecommpay]]></author>
     <tab><![CDATA[payments_gateways]]></tab>
