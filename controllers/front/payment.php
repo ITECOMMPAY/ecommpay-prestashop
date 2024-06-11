@@ -95,7 +95,7 @@ class EcommpayPaymentModuleFrontController extends ModuleFrontController
 
     protected function isAjax(): bool
     {
-        return Tools::getValue('is_ajax');
+        return (bool) Tools::getValue('is_ajax');
     }
 
     protected function sendAjax(array $data): void

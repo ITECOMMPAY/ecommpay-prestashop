@@ -143,7 +143,7 @@ class Signer
     {
         $paymentAmount = $cart->getOrderTotal() * 100;
         $orderId = Order::getIdByCartId($cart->id);
-        $paymentId = $orderId;
+        $paymentId = (string) $orderId;
 
         if ($config['isTest']) {
             require_once(__DIR__ . '/common/EcpOrderIdFormatter.php');

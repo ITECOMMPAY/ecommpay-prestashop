@@ -36,7 +36,7 @@ class EcpRefundProcessor
      */
     public function __construct(int $projectId, string $secretKey, string $paymentPrefix = '')
     {
-        $this->projectId = (int)$projectId;
+        $this->projectId = $projectId;
         $this->signer = new EcpSigner($secretKey);
         $this->paymentPrefix = $paymentPrefix;
     }

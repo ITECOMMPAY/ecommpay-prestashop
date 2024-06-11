@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../common/EcpOrderStates.php';
+require_once __DIR__ . '/../../common/EcpCallback.php';
+
 /**
  * @since 1.5.0
  */
@@ -40,11 +43,13 @@ class EcommpayCallbackModuleFrontController extends ModuleFrontController
             $orderId = EcpOrderIdFormatter::removeOrderPrefix($orderId, Signer::CMS_PREFIX);
 
             $paymentStatus = $bodyData['payment']['status'];
-
-            $state = 'success' === $paymentStatus ? 'PS_OS_ECOMMPAY_APPROVED' : 'PS_OS_ECOMMPAY_DECLINED';
-            $this
-                ->findOrder($orderId)
-                ->setOrderState($state, $bodyData);
+            
+            if (isset(EcpCallback::STATUS_MAP[$paymentStatus])) {
+                $this
+                    ->findOrder($orderId)
+                    ->setOrderState(EcpCallback::STATUS_MAP[$paymentStatus], $bodyData);
+            }
+            
             die('ok');
         }
 
