@@ -29,6 +29,10 @@
  * Need to be called for each module in 1.4
  */
 
+if (!defined('_PS_VERSION_')) {
+    exit;
+}
+
 // Get out if the context is already defined
 if (!in_array('Context', get_declared_classes()))
 	require_once(dirname(__FILE__).'/Context.php');

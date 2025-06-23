@@ -1,70 +1,77 @@
 <?php
+
 declare(strict_types=1);
+
+if (!defined('_PS_VERSION_')) {
+    exit;
+}
+
+use Order;
+use OrderState;
+use PrestaShopDatabaseException;
+use PrestaShopException;
+use Validate;
+use Ecommpay\EcpOrderStates;
+use Exception;
+use Ecommpay\EcpLogger;
 
 /**
  * @since 1.5.0
  */
-class EcommpaySuccessPaymentModuleFrontController extends ModuleFrontController
+class EcommpaySuccesspaymentModuleFrontController extends ModuleFrontController
 {
+    private const HISTORY_URI = 'index.php?controller=history';
+
     /**
      * @var string
      */
     protected $status;
 
     /**
-     * @var Order
+     * @var Order|null
      */
     protected $currentOrder = null;
 
+    /**
+     * @throws PrestaShopException
+     * @throws PrestaShopDatabaseException
+     */
     public function initContent()
     {
         parent::initContent();
 
-        $this->status = 'Once payment is processed by Ecommpay you order will appear in your history';
-        $historyUrl = $this->module->getHistoryLink();
-
-        if ($this->isTestMode()) {
-            $this
-                ->findOrder()
-                ->changeTestOrderState();
-        } else {
-            $this
-                ->findOrder()
-                ->setStatusFromRealOrder();
-        }
-
-        $status = $this->status;
-        $order = $this->currentOrder;
-
-        $this->context->smarty->assign(compact('historyUrl', 'status', 'order'));
-
-        if (_PS_VERSION_ >= '1.7') {
-            $this->setTemplate('module:ecommpay/views/templates/front/payment_success_17.tpl');
+        $orderId = Tools::getValue('order_id');
+        if (!$orderId) {
+            Tools::redirect($this::HISTORY_URI);
             return;
         }
 
-        $this->setTemplate('payment_success.tpl');
-    }
+        try {
+            $order = new Order($orderId);
+            if (!Validate::isLoadedObject($order)) {
+                Tools::redirect($this::HISTORY_URI);
+                return;
+            }
 
-    /**
-     * @return bool
-     */
-    protected function isTestMode(): bool
-    {
-        return
-            isset($_GET['test'])
-            &&
-            $_GET['test'] === '1'
-            &&
-            $this->module->isInTestMode();
+            Tools::redirect('index.php?' . http_build_query([
+                'controller' => 'order-confirmation',
+                'id_cart' => $order->id_cart,
+                'id_module' => $this->module->id,
+                'id_order' =>  $order->id,
+                'key' => $order->secure_key,
+            ]));
+
+        } catch (Exception $e) {
+            Tools::redirect($this::HISTORY_URI);
+        }
     }
 
     /**
      * @return $this
      */
-    protected function findOrder(): EcommpaySuccessPaymentModuleFrontController
+    protected function findOrder(): EcommpaySuccesspaymentModuleFrontController
     {
-        $orderId = intval(isset($_GET['order_id']) ? (int)$_GET['order_id'] : 0);
+        $orderId = (int)($_GET['order_id'] ?? 0);
 
         $order = new Order($orderId);
         if (!Validate::isLoadedObject($order)) {
@@ -85,23 +92,11 @@ class EcommpaySuccessPaymentModuleFrontController extends ModuleFrontController
         return $this->currentOrder;
     }
 
-    protected function changeTestOrderState(): void
-    {
-        $order = $this->getOrder();
-        if (!$order) {
-            return;
-        }
-
-        $stateApproved = Configuration::get('PS_OS_ECOMMPAY_APPROVED');
-
-        if ($order->current_state != $stateApproved) {
-            $this->addTestTransactionsInfo($order);
-            $this->module->setOrderState($order, $stateApproved);
-        }
-        $this->status = $this->module->l('Your order has been processed by Ecommpay');
-    }
-
-    protected function setStatusFromRealOrder(): void
+    /**
+     * @throws PrestaShopDatabaseException
+     * @throws PrestaShopException
+     */
+    protected function setStatusFromOrder(): void
     {
         $order = $this->getOrder();
         if (!$order) {
@@ -109,28 +104,12 @@ class EcommpaySuccessPaymentModuleFrontController extends ModuleFrontController
         }
 
         $state = new OrderState($order->current_state);
-        $name = isset($state->name[1]) ? $state->name[1] : null;
+        $name = $state->name[1] ?? null;
         if (!$name) {
-            $name = isset($state->name[0]) ? $state->name[0] : null;
+            $name = $state->name[0] ?? null;
         }
         if ($name) {
             $this->status = $this->module->l('Your order has status: ' . $name);
         }
-    }
-
-    protected function addTestTransactionsInfo(Order $order): void
-    {
-        $this->module->addTransactionsInfo($order, array(
-            'payment' => array(
-                'id' => $order->id,
-                'sum' => array(
-                    'amount' => $order->getTotalPaid() * 100
-                ),
-            ),
-            'account' => array(
-                'card_holder' => 'Test Test',
-                'number' => '5555555555554444'
-            )
-        ));
     }
 }

@@ -1,82 +1,92 @@
 <?php
+
 /**
-* 2007-2015 PrestaShop
-*
-* NOTICE OF LICENSE
-*
-* This source file is subject to the Academic Free License (AFL 3.0)
-* that is bundled with this package in the file LICENSE.txt.
-* It is also available through the world-wide-web at this URL:
-* http://opensource.org/licenses/afl-3.0.php
-* If you did not receive a copy of the license and are unable to
-* obtain it through the world-wide-web, please send an email
-* to license@prestashop.com so we can send you a copy immediately.
-*
-* DISCLAIMER
-*
-* Do not edit or add to this file if you wish to upgrade PrestaShop to newer
-* versions in the future. If you wish to customize PrestaShop for your
-* needs please refer to http://www.prestashop.com for more information.
-*
-*  @author    PrestaShop SA <contact@prestashop.com>
-*  @copyright 2007-2015 PrestaShop SA
-*  @license   http://opensource.org/licenses/afl-3.0.php  Academic Free License (AFL 3.0)
-*  International Registered Trademark & Property of PrestaShop SA
-*/
+ * 2007-2015 PrestaShop
+ *
+ * NOTICE OF LICENSE
+ *
+ * This source file is subject to the Academic Free License (AFL 3.0)
+ * that is bundled with this package in the file LICENSE.txt.
+ * It is also available through the world-wide-web at this URL:
+ * http://opensource.org/licenses/afl-3.0.php
+ * If you did not receive a copy of the license and are unable to
+ * obtain it through the world-wide-web, please email license@prestashop.com so we can send you a copy immediately.
+ *
+ * DISCLAIMER
+ *
+ * Do not edit or add to this file if you wish to upgrade PrestaShop to newer
+ * versions in the future. If you wish to customize PrestaShop for your
+ * needs please refer to http://www.prestashop.com for more information.
+ *
+ * @author    PrestaShop SA <contact@prestashop.com>
+ * @copyright 2007-2015 PrestaShop SA
+ * @license   http://opensource.org/licenses/afl-3.0.php  Academic Free License (AFL 3.0)
+ *  International Registered Trademark & Property of PrestaShop SA
+ */
+
+declare(strict_types=1);
+
 if (!defined('_PS_VERSION_')) {
     exit;
 }
 
-require_once __DIR__ . '/Signer.php';
-require_once __DIR__ . '/common/EcpHelper.php';
-require_once __DIR__ . '/common/EcpOrderStates.php';
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
 
+use Ecommpay\EcommpayConfig;
+use Ecommpay\EcpCallbackProcessor;
+use Ecommpay\EcpOrderManager;
+use Ecommpay\EcpOrderStates;
+use Ecommpay\EcpRequestProcessor;
+use Ecommpay\EcpHelper;
+use Ecommpay\EcpPayment;
+use Ecommpay\EcpPaymentService;
+use Ecommpay\EcpLogger;
+use Ecommpay\exceptions\EcpSqlExecutionException;
+use ecommpay\SignatureHandler;
+use PrestaShop\PrestaShop\Core\Payment\PaymentOption;
 
-class ecommpay extends PaymentModule
+class Ecommpay extends PaymentModule
 {
     public const PLUGIN_NAME = 'ecommpay';
-
-    const ECOMMPAY_PROJECT_ID = 'ECOMMPAY_PROJECT_ID';
-    const ECOMMPAY_SECRET_KEY = 'ECOMMPAY_SECRET_KEY';
-    const ECOMMPAY_IS_TEST = 'ECOMMPAY_IS_TEST';
-    const ECOMMPAY_PAYMENT_PAGE_LANGUAGE = 'ECOMMPAY_PAYMENT_PAGE_LANGUAGE';
-    const ECOMMPAY_PAYMENT_PAGE_CURRENCY = 'ECOMMPAY_PAYMENT_PAGE_CURRENCY';
-    const ECOMMPAY_ADDITIONAL_PARAMETERS = 'ECOMMPAY_ADDITIONAL_PARAMETERS';
-    const ECOMMPAY_IS_POPUP = 'ECOMMPAY_IS_POPUP';
-    const ECOMMPAY_TITLE = 'ECOMMPAY_TITLE';
-    const ECOMMPAY_DESCRIPTION = 'ECOMMPAY_DESCRIPTION';
-
-    /**
-     * @var array
-     */
     protected $pluginOptions;
 
+    /**
+     * @var string
+     */
+    public $name;
+    /**
+     * @var string
+     */
+    public $version;
     /**
      * @var array
      */
     public $options;
-
     /**
-     * @var Signer
+     * @var SignatureHandler
      */
     public $signer;
+    /**
+     * @var EcpPaymentService
+     */
+    public $paymentService;
+    private $callbackProcessor;
 
     /**
-     * @var EcpRefundProcessor
+     * @throws PrestaShopException
      */
-    private $refund_processor;
-
     public function __construct()
     {
         $this->name = self::PLUGIN_NAME;
+        $this->tab = 'payments_gateways';
+        $this->version = '2.0.0';
+        $this->author = 'Ecommpay';
+        $this->need_instance = 1;
+        $this->ps_versions_compliancy = ['min' => '8.0.0', 'max' => '8.2.99'];
+
         $this->displayName = $this->l('Ecommpay payments');
         $this->description = $this->l('Online payment via Ecommpay');
-        $this->author = 'Ecommpay';
-        $this->version = '1.0.2';
-        $this->tab = 'payments_gateways';
         $this->confirmUninstall = $this->l('Are you sure you want to uninstall?');
-        $this->need_instance = 1;
-        $this->ps_versions_compliancy = array('min' => '1.5', 'max' => _PS_VERSION_);
         $this->bootstrap = true;
 
         $this->_constructOptions();
@@ -88,60 +98,38 @@ class ecommpay extends PaymentModule
             require(_PS_MODULE_DIR_ . $this->name . '/backward_compatibility/backward.php');
         }
 
-        $this->signer = new Signer(
-            $this->options[self::ECOMMPAY_IS_TEST],
-            $this->options[self::ECOMMPAY_PROJECT_ID],
-            $this->options[self::ECOMMPAY_SECRET_KEY],
-            $this->options[self::ECOMMPAY_PAYMENT_PAGE_LANGUAGE],
-            $this->options[self::ECOMMPAY_PAYMENT_PAGE_CURRENCY],
-            $this->options[self::ECOMMPAY_ADDITIONAL_PARAMETERS],
-            $this->context->link->getModuleLink($this->name, 'PLACEHOLDER')
-        );
-
-        require_once('common/EcpRefundProcessor.php');
-        require_once('classes/EcpOrderSlip.php');
-        $this->refund_processor = new EcpRefundProcessor(
-            $this->options[self::ECOMMPAY_IS_TEST] ? Signer::ECOMMPAY_TEST_PROJECT_ID : (int)$this->options[self::ECOMMPAY_PROJECT_ID],
-            $this->options[self::ECOMMPAY_IS_TEST] ? Signer::ECOMMPAY_TEST_SECRET_KEY : $this->options[self::ECOMMPAY_SECRET_KEY],
-            $this->options[self::ECOMMPAY_IS_TEST] ? Signer::CMS_PREFIX : ''
-        );
+        $this->signer = new SignatureHandler($this->options[EcommpayConfig::ECOMMPAY_SECRET_KEY] ?: '');
+        $this->paymentService = new EcpPaymentService((int) $this->options[EcommpayConfig::ECOMMPAY_PROJECT_ID]);
+        $this->orderManager = new EcpOrderManager($this->context);
+        $this->callbackProcessor = new EcpCallbackProcessor($this->signer, $this->orderManager);
+        $this->requestProcessor = new EcpRequestProcessor($this->signer, $this->paymentService);
     }
 
-    protected function _constructOptions()
+    /**
+     * @throws PrestaShopException
+     */
+    protected function _constructOptions(): void
     {
-        $this->pluginOptions = array(
-            self::ECOMMPAY_IS_TEST,
-            self::ECOMMPAY_PAYMENT_PAGE_CURRENCY,
-            self::ECOMMPAY_PAYMENT_PAGE_LANGUAGE,
-            self::ECOMMPAY_PROJECT_ID,
-            self::ECOMMPAY_SECRET_KEY,
-            self::ECOMMPAY_ADDITIONAL_PARAMETERS,
-            self::ECOMMPAY_IS_POPUP,
-            self::ECOMMPAY_TITLE,
-            self::ECOMMPAY_DESCRIPTION
-        );
+        $this->pluginOptions = EcommpayConfig::SETTINGS_FIELDS;
 
-        $config = Configuration::getMultiple($this->pluginOptions);
+        $config = Configuration::getMultiple(array_keys($this->pluginOptions));
 
-        $this->options = array();
-        foreach ($this->pluginOptions as $key) {
-            $this->options[$key] = isset($config[$key]) ? $config[$key] : '';
+        $this->options = [];
+
+        foreach ($this->pluginOptions as $key => $defaultValue) {
+            $this->options[$key] = $config[$key] ?? $defaultValue ?? '';
         }
     }
 
-    protected function _constructWarning()
+    protected function _constructWarning(): void
     {
-        if ($this->options[self::ECOMMPAY_IS_TEST]) {
-            return;
-        }
-
         $warnings = array();
 
-        if (empty($this->options[self::ECOMMPAY_PROJECT_ID])) {
+        if (empty($this->options[EcommpayConfig::ECOMMPAY_PROJECT_ID])) {
             $warnings[] = $this->l('Configure project ID');
         }
 
-        if (empty($this->options[self::ECOMMPAY_SECRET_KEY])) {
+        if (empty($this->options[EcommpayConfig::ECOMMPAY_SECRET_KEY])) {
             $warnings[] = $this->l('Configure secret key');
         }
 
@@ -150,31 +138,70 @@ class ecommpay extends PaymentModule
         }
     }
 
-    public function install()
+    public function install(): bool
     {
-        $ecpOrderState = new EcpOrderStates($this->name);
-        $ecpOrderState->addOrderStates();
+        try {
+            $ecpOrderState = new EcpOrderStates($this->name);
+            $ecpOrderState->addOrderStates();
 
-        Configuration::updateValue(self::ECOMMPAY_IS_TEST, 1);
-        Configuration::updateValue(self::ECOMMPAY_IS_POPUP, 0);
-        Configuration::updateValue(self::ECOMMPAY_PAYMENT_PAGE_CURRENCY, 'USD');
-        Configuration::updateValue(self::ECOMMPAY_PAYMENT_PAGE_LANGUAGE, 'en');
-        Configuration::updateValue(self::ECOMMPAY_TITLE, 'Payment via Ecommpay');
-        Configuration::updateValue(
-            self::ECOMMPAY_DESCRIPTION,
-            'You will be redirected to Ecommpay payment page. All data you enter in that page are secured'
-        );
+            foreach ($this->pluginOptions as $option => $defaultValue) {
+                Configuration::updateValue($option, $defaultValue);
+            }
 
-        return parent::install() &&
-            $this->installSQL() &&
-            $this->registerHook('header') &&
-            $this->registerHook('payment') &&
-            $this->registerHook('actionOrderSlipAdd') &&
-            $this->registerHook('actionAdminControllerSetMedia') &&
-            $this->register17Hooks();
+            return parent::install()
+                && $this->installSQL()
+                && $this->registerHook('actionOrderSlipAdd')
+                && $this->registerHook('actionAdminControllerSetMedia')
+                && $this->register17Hooks()
+                && $this->installTab();
+        } catch (Throwable $e) {
+            file_put_contents(__DIR__ . '/ecommpay-dev.log', $e->getMessage() . PHP_EOL . $e->getTraceAsString());
+            return false;
+        }
     }
 
-    protected function register17Hooks()
+    /**
+     * @throws PrestaShopException
+     */
+    private function installTab(): bool
+    {
+        $tab = new Tab();
+        $tab->active = 1;
+        $tab->class_name = 'AdminEcommpaySettings';
+        $tab->id_parent = $this->getTabId('AdminParentModules');
+        $tab->module = $this->name;
+
+        foreach (Language::getLanguages(true) as $lang) {
+            $tab->name[$lang['id_lang']] = 'Ecommpay Settings';
+        }
+
+        return $tab->add();
+    }
+
+    /**
+     * @throws PrestaShopException
+     */
+    private function getTabId($className): int
+    {
+        return (int)Db::getInstance()->getValue(
+            'SELECT id_tab FROM ' . _DB_PREFIX_ . 'tab WHERE class_name = "' . pSQL($className) . '"'
+        );
+    }
+
+    /**
+     * @throws PrestaShopException
+     */
+    private function uninstallTab(): bool
+    {
+        $id_tab = $this->getTabId('AdminEcommpaySettings');
+        if ($id_tab) {
+            $tab = new Tab($id_tab);
+            return $tab->delete();
+        }
+        return true;
+    }
+
+    protected function register17Hooks():   bool
     {
         if (_PS_VERSION_ >= '1.7') {
             return
@@ -184,165 +211,188 @@ class ecommpay extends PaymentModule
         return true;
     }
 
-
     /**
-     * @return boolean if install was successfull
+     * @return boolean if install was successfully
      */
-    private function installSQL()
+    private function installSQL(): bool
     {
-        $sql = "SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = '" . _DB_NAME_ ."' AND TABLE_NAME = '" ._DB_PREFIX_ . "order_slip' AND column_name = 'external_id';";
         try {
-            if (empty(DB::getInstance()->getRow($sql))) {
-                $sql = "ALTER TABLE " . _DB_PREFIX_ . "order_slip ADD COLUMN external_id VARCHAR(255) DEFAULT NULL COMMENT 'Ecommpay refund id'";
-                if (!DB::getInstance()->execute($sql)) {
-                    return false;
-                }
-            }
-        } catch (PrestaShopDatabaseException $e) {
+            $this->addDatabaseColumn("order_slip", "customer_thread_id", "INT UNSIGNED DEFAULT NULL");
+            $this->addDatabaseColumn("order_slip", "external_id", "VARCHAR(255) DEFAULT NULL COMMENT 'Ecommpay refund id'");
+            $this->addDatabaseColumn("orders", "ecp_payment_id", "VARCHAR(255) DEFAULT NULL COMMENT 'Ecommpay payment id'");
+        } catch (PrestaShopDatabaseException | EcpSqlExecutionException $e) {
+            EcpLogger::log('Error occurred while inserting SQL columns. Message: ' . $e->getMessage());
             return false;
         }
-
-        $sql = "SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = '" . _DB_NAME_ ."' AND TABLE_NAME = '" ._DB_PREFIX_ . "order_slip' AND column_name = 'customer_thread_id';";
-        try {
-            if (empty(DB::getInstance()->getRow($sql))) {
-                $sql = "ALTER TABLE " . _DB_PREFIX_ . "order_slip ADD COLUMN customer_thread_id INT UNSIGNED DEFAULT NULL";
-                if (!DB::getInstance()->execute($sql)) {
-                    return false;
-                }
-            }
-        } catch (PrestaShopDatabaseException $e) {
-            return false;
-        }
-
         return true;
     }
 
     /**
-     * @return boolean if install was successfull
+     * @return boolean if install was successfully
      */
-    private function uninstallSQL()
+    private function uninstallSQL(): bool
     {
-        $sql = "SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = '" . _DB_NAME_ ."' AND TABLE_NAME = '" ._DB_PREFIX_ . "order_slip' AND column_name = 'external_id';";
         try {
-            if (!empty(DB::getInstance()->getRow($sql))) {
-                $sql = "ALTER TABLE " . _DB_PREFIX_ . "order_slip DROP external_id";
-                if (!DB::getInstance()->execute($sql)) {
-                    return false;
-                }
-            }
-        } catch (PrestaShopDatabaseException $e) {
+            $this->removeDatabaseColumn("order_slip", "external_id");
+            $this->removeDatabaseColumn("order_slip", "customer_thread_id");
+            $this->removeDatabaseColumn("orders", "ecp_payment_id");
+        } catch (PrestaShopDatabaseException | EcpSqlExecutionException $e) {
+            EcpLogger::log('Error occured while removing SQL columns. Message: ' . $e->getMessage());
             return false;
         }
-
-        $sql = "SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = '" . _DB_NAME_ ."' AND TABLE_NAME = '" ._DB_PREFIX_ . "order_slip' AND column_name = 'customer_thread_id';";
-        try {
-            if (!empty(DB::getInstance()->getRow($sql))) {
-                $sql = "ALTER TABLE " . _DB_PREFIX_ . "order_slip DROP customer_thread_id";
-                if (!DB::getInstance()->execute($sql)) {
-                    return false;
-                }
-            }
-        } catch (PrestaShopDatabaseException $e) {
-            return false;
-        }
-
         return true;
     }
 
-    public function uninstall()
+    private function executeSqlQuery(string $sql): void
     {
-        Configuration::deleteByName(self::ECOMMPAY_IS_TEST);
-        Configuration::deleteByName(self::ECOMMPAY_PROJECT_ID);
-        Configuration::deleteByName(self::ECOMMPAY_SECRET_KEY);
-        Configuration::deleteByName(self::ECOMMPAY_PAYMENT_PAGE_LANGUAGE);
-        Configuration::deleteByName(self::ECOMMPAY_PAYMENT_PAGE_CURRENCY);
-        Configuration::deleteByName(self::ECOMMPAY_ADDITIONAL_PARAMETERS);
-        Configuration::deleteByName(self::ECOMMPAY_IS_POPUP);
-        Configuration::deleteByName(self::ECOMMPAY_TITLE);
-        Configuration::deleteByName(self::ECOMMPAY_DESCRIPTION);
-        return $this->uninstallSQL() && parent::uninstall();
-    }
-
-    private function copyOrderStateImage($orderState, $image)
-    {
-        $imagePath = dirname(dirname(dirname(__FILE__))) . '/img/os/' . $image;
-        if (file_exists($imagePath)) {
-            @copy($imagePath, dirname(dirname(dirname(__FILE__))) . '/img/os/' . $orderState->id . '.gif');
+        if (!$result = DB::getInstance()->execute($sql)) {
+            throw new EcpSqlExecutionException(
+                sprintf('Execution %s ended with result %s', $sql, $result)
+            );
         }
     }
-
-    public function hookPayment($params)
+    private function addDatabaseColumn(string $tableName, string $columnName, string $columnType): void
     {
-        $paymentUrl = $this->context->link->getModuleLink($this->name, 'payment');
-        $paymentTitle = Configuration::get(self::ECOMMPAY_TITLE);
-        $paymentDescription = Configuration::get(self::ECOMMPAY_DESCRIPTION);
-        $this->context->smarty->assign(compact('paymentUrl', 'paymentTitle', 'paymentDescription'));
-        return $this->display(__FILE__, 'views/templates/front/payment.tpl');
-    }
-
-    public function hookPaymentOptions()
-    {
-        if (!$this->active) {
+        $sql = "SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = '" . _DB_NAME_
+            . "' AND TABLE_NAME = '" . _DB_PREFIX_ . $tableName . "' AND column_name = '" . $columnName . "';";
+        if (!empty(DB::getInstance()->getRow($sql))) {
             return;
         }
-
-        $newOption = new \PrestaShop\PrestaShop\Core\Payment\PaymentOption();
-        $newOption->setCallToActionText(Configuration::get(self::ECOMMPAY_TITLE))
-            ->setInputs(
-                array(
-                    array(
-                        'name' => 'confirm',
-                        'type' => 'hidden',
-                        'value' => 1
-                    )
-
-                )
-            )
-            ->setAdditionalInformation(Configuration::get(self::ECOMMPAY_DESCRIPTION))
-            ->setAction($this->context->link->getModuleLink($this->name, 'payment'));
-        return [$newOption];
+        $sql = "ALTER TABLE " . _DB_PREFIX_ . $tableName . " ADD COLUMN " . $columnName . " " . $columnType;
+        $this->executeSqlQuery($sql);
     }
 
-    public function hookHeader()
+    private function removeDatabaseColumn(string $tableName, string $columnName): void
     {
-        $basePath = __DIR__ . '/';
-        $add15Css = false;
-        if (_PS_VERSION_ <= 1.5) {
-            $basePath = $this->_path;
-            $add15Css = 'css/payment15.css';
+        $sql = "SELECT column_name FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = '" . _DB_NAME_
+            . "' AND TABLE_NAME = '" . _DB_PREFIX_ . $tableName . "' AND column_name = '" . $columnName . "';";
+        if (empty(DB::getInstance()->getRow($sql))) {
+            return;
+        }
+        /** @noinspection SqlResolve */
+        $sql = "ALTER TABLE " . _DB_PREFIX_ . $tableName . " DROP " . $columnName;
+        $this->executeSqlQuery($sql);
+    }
+
+    /**
+     * @throws PrestaShopException
+     */
+    public function uninstall(): bool
+    {
+        foreach (array_keys($this->pluginOptions) as $option) {
+            Configuration::deleteByName($option);
         }
 
-        $cssPath = $basePath . 'css/payment.css';
-        $this->context->controller->addCSS($cssPath, 'all');
+        return $this->uninstallSQL() && $this->uninstallTab() && parent::uninstall();
+    }
 
-        if ($add15Css !== false) {
-            $cssPath = $basePath . $add15Css;
-            $this->context->controller->addCSS($cssPath, 'all');
+    private function copyOrderStateImage($orderState, $image): void
+    {
+        $imagePath = dirname(__FILE__, 3) . '/img/os/' . $image;
+        if (file_exists($imagePath)) {
+            @copy($imagePath, dirname(__FILE__, 3) . '/img/os/' . $orderState->id . '.gif');
         }
+    }
 
-        if (Configuration::get(self::ECOMMPAY_IS_POPUP)) {
-            $jsPath = $basePath . 'js/payment.js';
-            $this->context->controller->addJS($jsPath);
-        }
+    /**
+     * Create payment option with common settings
+     * @param string $title Configuration key for title
+     * @param string $description Configuration key for description
+     * @param string $paymentMethod Controller action name
+     * @return PaymentOption
+     * @throws SmartyException
+     */
+    private function createPaymentOption(string $title, string $description, string $paymentMethod): PaymentOption
+    {
+        $option = new PaymentOption();
+        $option->setCallToActionText($title)
+            ->setAction($this->context->link->getModuleLink($this->name, $paymentMethod));
 
-        Media::addJsDef([
-            'ecpHost' => Signer::getPaymentPageHost(),
-            'paymentUrlWithConfirm' => EcpHelper::getPaymentUrlWithConfirm(),
+        $this->context->smarty->assign([
+            'paymentCardDisplayMode' => EcommpayConfig::getCardDisplayMode(),
+            'paymentMethodTitle' => $title,
+            'paymentMethodDescription' => $description,
+            'paymentMethodCode' => $paymentMethod
         ]);
+
+        $option->setAdditionalInformation(
+            $this->context->smarty->fetch('module:ecommpay/views/templates/front/payment.tpl')
+        );
+
+        return $option;
+    }
+
+    public function hookPaymentOptions(): array
+    {
+        if (!$this->active) {
+            EcpLogger::log('Module is not active');
+            return [];
+        }
+
+        $paymentOptions = [];
+
+        // Card payment option
+        if (Configuration::get(EcommpayConfig::ECOMMPAY_CARD_ENABLED)) {
+            $paymentOptions[] = $this->createPaymentOption(
+                Configuration::get(EcommpayConfig::ECOMMPAY_CARD_TITLE),
+                Configuration::get(EcommpayConfig::ECOMMPAY_CARD_DESCRIPTION),
+                EcpPayment::CARD_PAYMENT_METHOD
+            );
+        }
+
+        // Apple Pay option
+        if (Configuration::get(EcommpayConfig::ECOMMPAY_APPLE_PAY_ENABLED)) {
+            $paymentOptions[] = $this->createPaymentOption(
+                Configuration::get(EcommpayConfig::ECOMMPAY_APPLE_PAY_TITLE),
+                Configuration::get(EcommpayConfig::ECOMMPAY_APPLE_PAY_DESCRIPTION),
+                EcpPayment::APPLEPAY_PAYMENT_METHOD
+            );
+        }
+
+        // Google Pay option
+        if (Configuration::get(EcommpayConfig::ECOMMPAY_GOOGLE_PAY_ENABLED)) {
+            $paymentOptions[] = $this->createPaymentOption(
+                Configuration::get(EcommpayConfig::ECOMMPAY_GOOGLE_PAY_TITLE),
+                Configuration::get(EcommpayConfig::ECOMMPAY_GOOGLE_PAY_DESCRIPTION),
+                EcpPayment::GOOGLEPAY_PAYMENT_METHOD
+            );
+        }
+
+        // More payment methods option
+        if (Configuration::get(EcommpayConfig::ECOMMPAY_MORE_METHODS_ENABLED)) {
+            $paymentOptions[] = $this->createPaymentOption(
+                Configuration::get(EcommpayConfig::ECOMMPAY_MORE_METHODS_TITLE),
+                Configuration::get(EcommpayConfig::ECOMMPAY_MORE_METHODS_DESCRIPTION),
+                EcpPayment::MORE_METHODS_PAYMENT_METHOD
+            );
+        }
+
+        return $paymentOptions;
     }
 
     public function hookDisplayHeader()
     {
-        Media::addJsDef([
-            'ecpHost' => Signer::getPaymentPageHost(),
-            'paymentUrlWithConfirm' => EcpHelper::getPaymentUrlWithConfirm(),
-        ]);
-        if (Configuration::get(self::ECOMMPAY_IS_POPUP)) {
-            $this->context->controller->addJS($this->_path . 'js/payment.js', false);
+        if ($this->context->controller instanceof OrderController) {
+            $this->context->controller->addCSS('modules/ecommpay/views/css/payment.css');
+            $this->context->controller->addJS('modules/ecommpay/views/js/payment.js');
+
+            Media::addJsDef([
+                'ECOMMPAY_PAYMENT_URL' => EcpHelper::getPaymentUrl(),
+                'ECOMMPAY_HOST' => EcpPaymentService::getPaymentPageBaseUrl(),
+                'ECOMMPAY_PAYMENT_INFO_URL' => $this->context->link->getModuleLink('ecommpay', 'paymentinfo', [], true),
+                'ECOMMPAY_SUCCESS_URL' => $this->context->link->getModuleLink('ecommpay', 'successpayment', [], true),
+                'ECOMMPAY_FAIL_URL' => $this->context->link->getModuleLink('ecommpay', 'failpayment', [], true),
+                'ECOMMPAY_CARD_DISPLAY_MODE' => EcommpayConfig::getCardDisplayMode(),
+                'ECOMMPAY_CHECK_CART_URL' => $this->context->link->getModuleLink('ecommpay', 'checkcart', [], true),
+            ]);
         }
     }
 
-    public function hookActionOrderSlipAdd($params)
+    /**
+     * @throws PrestaShopException
+     * @throws PrestaShopDatabaseException
+     */
+    public function hookActionOrderSlipAdd($params): void
     {
         if (!Tools::isSubmit('doPartialRefundEcommpay')) {
             return;
@@ -351,7 +401,7 @@ class ecommpay extends PaymentModule
         /** @var Order $order */
         $order = $params['order'];
 
-        $slip = $this->getLastSlipForOrder($order);
+        $slip = $this->orderManager->getLastSlipForOrder($order);
 
         $amount = 0;
         foreach ($params['productList'] as $product) {
@@ -364,191 +414,50 @@ class ecommpay extends PaymentModule
         $currency = new Currency($order->id_currency);
 
         try {
-            $ecp_refund_result = $this->refund_processor->processRefund(
-                (string)$params['order']->id,
+            $ecp_refund_result = $this->requestProcessor->sendPostRequest(
+                $order->id,
                 $amount,
                 $currency->iso_code
             );
             if ($ecp_refund_result->getRefundExternalId() === null) {
-                $this->saveOrderMessage($order->id, 'Request was declined by gateway.');
+                $this->orderManager->saveOrderMessage($order->id, 'Request was declined by gateway.');
             }
 
-            $thread_id = $this->createOrderThread($order->id);
+            $thread_id = $this->orderManager->createOrderThread($order->id);
 
             $now = new DateTime();
             $message = 'Money-back request #' . $slip->id . ' was sent at ' . $now->format('d.m.Y H:i:s');
-            $this->saveOrderMessage($order->id, $message, $thread_id);
+            $this->orderManager->saveOrderMessage($order->id, $message, $thread_id);
 
             $slip->external_id = $ecp_refund_result->getRefundExternalId();
             $slip->customer_thread_id = $thread_id;
             $slip->save();
+
+            //do not remove it to prevent an callback error Order->payment is empty
+            $order->setCurrentState(Configuration::get(EcpOrderStates::PENDING_STATE));
         } catch (Exception $e) {
-            $this->saveOrderMessage($order->id, 'Request was not correctly processed by gateway.');
+            $this->orderManager->saveOrderMessage($order->id, 'Request was not correctly processed by gateway. ' . $e->getMessage());
         }
     }
 
-    /**
-     * @param int $order_id
-     * @param string $message
-     * @param int|null $thread_id
-     * @return CustomerMessage
-     */
-    private function saveOrderMessage($order_id, $message, $thread_id = null)
+    public function processCallback(array $data): void
     {
-        try {
-            if ($thread_id === null) {
-                $thread_id = $this->createOrderThread($order_id);
-            }
-            $order_message = new CustomerMessage();
-            $order_message->id_customer_thread = $thread_id;
-            $order_message->private = 1;
-            $order_message->id_employee = $this->context->employee->id;
-            $order_message->message = $message;
-            $order_message->save();
-        } catch (PrestaShopException $e) {
-            return null;
-        }
-        return $order_message;
+        $this->callbackProcessor->processCallback($data);
     }
 
-    /**
-     * @param $id_order
-     * @return int
-     * @throws PrestaShopException
-     */
-    private function createOrderThread($id_order)
-    {
-        $orderThread = new CustomerThread();
-        $orderThread->id_shop = $this->context->shop->id;
-        $orderThread->id_lang = $this->context->language->id;
-        $orderThread->id_contact = 0;
-        $orderThread->id_order = $id_order;
-        $orderThread->id_customer = $this->context->customer->id;
-        $orderThread->status = 'open';
-        $orderThread->email = $this->context->customer->email;
-        $orderThread->token = Tools::passwdGen(12);
-        $orderThread->add();
-
-        return (int)$orderThread->id;
-    }
-
-    /**
-     * @param string $data
-     * @return bool
-     * @throws Exception
-     */
-    public function processRefundCallback($data)
-    {
-        try {
-            $callback = $this->refund_processor->processCallback($data);
-        } catch (EcpOperationException $ex) {
-            return  false;
-        }
-
-        /** @var EcpOrderSlip|null $slip */
-        $slip = EcpOrderSlip::findByExternalId($callback->getRequestId());
-        if (!$slip) {
-            $order = new Order((int)$callback->getOrderId());
-            $slip = OrderSlip::create($order, [], false, -$callback->getSumInitialAmount());
-            $slip = $this->getLastSlipForOrder($order);
-            $slip->external_id = $callback->getRequestId();
-            $slip->customer_thread_id = $this->createOrderThread($order->id);
-            $slip->save();
-        }
-
-        $order = new Order($slip->id_order);
-
-        $now = new \DateTime();
-
-        if ($callback->isSuccess()) {
-            $message = 'Money-back request #' . $slip->id . ' was successfully processed at ' .
-                $now->format('d.m.Y H:i:s');
-        } else {
-            $message = 'Money-back request #' . $slip->id . ' was declined at ' .
-                $now->format('d.m.Y H:i:s') .
-                '. Reason: ' . $callback->getDescription();
-            $this->saveOrderMessage($order->id, $message, $slip->customer_thread_id);
-            die('Ok');
-        }
-
-        $this->saveOrderMessage($order->id, $message, $slip->customer_thread_id);
-
-        if (in_array($callback->getPaymentStatus(), ['partially refunded', 'partially reversed'])) {
-            $this->setOrderState($order, Configuration::get('PS_OS_ECOMMPAY_PT_REFUNDED'));
-            $order->save();
-        }
-
-        if (in_array($callback->getPaymentStatus(), ['refunded', 'reversal'])) {
-            $this->setOrderState($order, Configuration::get('PS_OS_ECOMMPAY_REFUNDED'));
-            $order->save();
-        }
-
-
-        $slip->external_id = '+' . $slip->external_id;
-        $slip->save();
-
-        return true;
-    }
-
-    private function getLastSlipForOrder($order) {    
-        $maxId = 0;
-        foreach ($order->getOrderSlipsCollection() as $slip){
-            if ($slip->id > $maxId) {
-                $maxId = $slip->id;
-            }
-        }
-        if ($maxId == 0) {
-            $this->saveOrderMessage($order->id, 'Unable to send refund request: an order slip was not created properly.');
-            return;
-        }
-        return new EcpOrderSlip($maxId);;
-    }
-
-    public function hookActionAdminControllerSetMedia()
+    public function hookActionAdminControllerSetMedia(): void
     {
         if (Tools::getValue('controller') == "AdminOrders" && Tools::getValue('id_order')) {
             Media::addJsDefL('chb_ecommpay_refund', $this->l('Refund via Ecommpay'));
-            $this->context->controller->addJS($this->_path.'/js/bo_order.js');
+            $this->context->controller->addJS($this->_path . '/views/js/bo_order.js');
         }
     }
 
-
-    public function getContent()
-    {
-        if (Tools::getValue('ecommpay_updateSettings')) {
-            foreach ($this->pluginOptions as $key) {
-                Configuration::updateValue($key, Tools::getValue($key));
-            }
-            $this->_constructOptions();
-        }
-
-        $availableCurrencies = Currency::getCurrencies(true);
-        $availableLanguages = array(
-            array('code' => 'default', 'name' => 'By customer browser'),
-            array('code' => 'en', 'name' => 'English'),
-            array('code' => 'fr', 'name' => 'France'),
-            array('code' => 'it', 'name' => 'Italian'),
-            array('code' => 'de', 'name' => 'Germany'),
-            array('code' => 'es', 'name' => 'Spanish'),
-            array('code' => 'ru', 'name' => 'Russian'),
-            array('code' => 'zh', 'name' => 'Chinese'),
-        );
-
-        $callbackUrl = EcpHelper::getCallbackUrl();
-        $psVersion = _PS_VERSION_;
-
-        $this->context->smarty->assign(
-            array_merge($this->options, compact('availableCurrencies', 'availableLanguages', 'callbackUrl', 'psVersion'))
-        );
-        return $this->display(__FILE__, 'views/templates/admin/config.tpl');
-    }
-
-    public function isInTestMode()
-    {
-        return $this->options[self::ECOMMPAY_IS_TEST];
-    }
-
-    public function loadOrderFromCart(Cart $cart)
+    /**
+     * @throws PrestaShopDatabaseException
+     * @throws PrestaShopException
+     */
+    public function loadOrderFromCart(Cart $cart): ?Order
     {
         $orderId = Order::getIdByCartId($cart->id);
         if (!$orderId) {
@@ -564,51 +473,13 @@ class ecommpay extends PaymentModule
         return $order;
     }
 
-    public function addTransactionsInfo($order, array $transactionData)
-    {
-        if (_PS_VERSION_ >= 1.5) {
-            $payments = $order->getOrderPaymentCollection();
-            if ($payments->count() == 0) {
-                return;
-            }
-
-            $cartId = Cart::getCartIdByOrderId($order->id);
-
-            foreach ($payments as $payment) {
-                if ($payment->transaction_id != $cartId) {
-                    continue;
-                }
-
-                $fields = [
-                    'card_number' => 'number',
-                    'card_holder' => 'card_holder',
-                    'card_brand' => 'type',
-                    'payment_method' => 'payment_method',
-                ];
-
-                $payment->amount = number_format($transactionData['payment']['sum']['amount'] / 100, 2, '.', '');
-
-                foreach ($fields as $localKey => $foreignKey) {
-                    if (!isset($transactionData['account'][$foreignKey])) {
-                        continue;
-                    }
-                    $payment->{$localKey} = $transactionData['account'][$foreignKey];
-                }
-
-                $payment->save();
-
-                break;
-            }
-        }
-    }
-
-    public function setOrderState($order, $stateId)
-    {
-        $order->setCurrentState($stateId);
-    }
-
-    public function getHistoryLink()
+    public function getHistoryLink(): string
     {
         return $this->context->link->getPageLink('history');
+    }
+
+    public function getContent(): string
+    {
+        return Tools::redirectAdmin($this->context->link->getAdminLink('AdminEcommpaySettings'));
     }
 }

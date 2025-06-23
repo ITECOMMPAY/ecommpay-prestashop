@@ -1,135 +1,133 @@
 <?php
+
 declare(strict_types=1);
+
+if (!defined('_PS_VERSION_')) {
+    exit;
+}
+
+use Ecommpay\EcommpayConfig;
+use Ecommpay\EcpPayment;
+use Ecommpay\EcpPaymentService;
+use Ecommpay\EcpLogger;
+use Ecommpay\EcpOrder;
+use Ecommpay\EcpOrderCreator;
+use Ecommpay\EcpPaymentPageBuilder;
+use Ecommpay\exceptions\EcpCartValidationException;
 
 /**
  * @since 1.5.0
  */
 class EcommpayPaymentModuleFrontController extends ModuleFrontController
 {
-    public function initContent()
+    private const CHECHOUT_PAGE_URI = 'index.php?controller=order&step=1';
+    
+    /**
+     * @throws Exception
+     */
+    public function initContent(): void
     {
         parent::initContent();
 
-        $cart = $this->context->cart;
-        if ($cart->id_customer == 0 || $cart->id_address_delivery == 0 || $cart->id_address_invoice == 0 || !$this->module->active) {
+        EcpLogger::log('Payment request: ', [
+                'method' => $_SERVER['REQUEST_METHOD'],
+                'get' => $_GET,
+                'post' => $_POST
+            ]);
 
-            if ($this->isAjax()) {
-                $this->sendAjax(array(
-                    'success' => false,
-                    'error' => 'Wrong data, try again from start'
-                ));
-            }
+        try {
+            $cart = $this->context->cart;
 
-            Tools::redirect('index.php?controller=order&step=1');
+            $orderCreator = new EcpOrderCreator($this->module);
+            $order = $orderCreator->createOrderIfRequired($cart);
+
+            $order = new EcpOrder($order->id);
+            $paymentMethod = $this->getPaymentMethod();
+            $paymentId = $this->getOrCreatePaymentId($paymentMethod);
+            $order->savePaymentId($paymentId);
+
+            $additionalParams = $this->collectAdditionalPaymentPageParams($paymentId, $paymentMethod);
+
+            $paymentPageBuilder = new EcpPaymentPageBuilder($this->module, $this->context);
+            $params = $paymentPageBuilder->getCommonPaymentParameters($cart, $additionalParams);
+            $response = $this->buildResponse($order, $params);
+            $this->sendAjax($response);
+        } catch (EcpCartValidationException $e) {
+            Tools::redirect($this::CHECHOUT_PAGE_URI);
+        } catch (Exception $e) {
+            EcpLogger::log('Unexpected error ' . $e->getMessage());
+            Tools::redirect($this::CHECHOUT_PAGE_URI);
         }
-
-        $authorized = false;
-        foreach (Module::getPaymentModules() as $module) {
-            if ($module['name'] == $this->module->name) {
-                $authorized = true;
-                break;
-            }
-        }
-
-        if (!$authorized) {
-            die($this->module->l('This payment method is not available.', 'validation'));
-        }
-
-        $customer = new Customer($cart->id_customer);
-        if (!Validate::isLoadedObject($customer)) {
-
-            if ($this->isAjax()) {
-                $this->sendAjax(array(
-                    'success' => false,
-                    'error' => 'No customer'
-                ));
-            }
-
-            Tools::redirect('index.php?controller=order&step=1');
-        }
-
-        $products = $cart->getProducts();
-        if (empty($products)) {
-
-            if ($this->isAjax()) {
-                $this->sendAjax(array(
-                    'success' => false,
-                    'error' => 'No products'
-                ));
-            }
-
-            Tools::redirect('index.php?controller=order&step=1');
-        }
-
-        if (
-            (isset($_GET['confirm']) && $_GET['confirm'] === '1')
-            ||
-            (isset($_POST['confirm']) && $_POST['confirm'] === '1')
-        ) {
-            $this->createOrderIfRequired($cart);
-            $paymentUrl = $this->module->signer->getCardRedirectUrl($cart);
-
-            if ($this->isAjax()) {
-                $this->sendAjax(array(
-                    'success' => true,
-                    'cardRedirectUrl' => $paymentUrl
-                ));
-            }
-
-            Tools::redirect($paymentUrl);
-        }
-
-        if (_PS_VERSION_ >= 1.7) {
-            die('Only POST method available for 1.7');
-        }
-
-        $paymentUrl = $this->context->link->getModuleLink($this->module->name, 'payment', ['confirm' => true]);
-
-        $this->context->smarty->assign(array(
-            'total' => $cart->getOrderTotal(true, Cart::BOTH),
-            'paymentUrl' => $paymentUrl,
-        ));
-
-        $this->setTemplate('payment_execution.tpl');
     }
 
-    protected function isAjax(): bool
+    private function collectAdditionalPaymentPageParams(string $paymentId, string $paymentMethod): array
     {
-        return (bool) Tools::getValue('is_ajax');
+        $additionalParams = [
+            'payment_id' => $paymentId,
+        ];
+
+        if ($forcePaymentmethod = $this->getForcePaymentMethod($paymentMethod)) {
+            $additionalParams['force_payment_method'] = $forcePaymentmethod;
+        }
+
+        return $additionalParams;
     }
 
-    protected function sendAjax(array $data): void
+    private function getForcePaymentMethod(string $paymentMethod): ?string
     {
-        die(json_encode($data));
+        $forcePaymentMethodMapping = [
+            EcpPayment::CARD_PAYMENT_METHOD => 'card',
+            EcpPayment::APPLEPAY_PAYMENT_METHOD => 'apple_pay_core',
+            EcpPayment::GOOGLEPAY_PAYMENT_METHOD => 'google_pay_host',
+            EcpPayment::MORE_METHODS_PAYMENT_METHOD => Configuration::get(EcommpayConfig::ECOMMPAY_MORE_METHODS_CODE) ?: null,
+        ];
+        return $forcePaymentMethodMapping[$paymentMethod] ?? null;
+    }
+
+    private function buildResponse(Order $order, array $paymentPageParams): array
+    {
+        return [
+            'success' => true,
+            'order_id' => $order->id,
+            'order_reference' => $order->reference,
+            'order_status' => $order->current_state,
+            'redirect_host' => EcpPaymentService::getPaymentPageBaseUrl() . '/payment',
+            'redirect_params' => $paymentPageParams,
+        ];
     }
 
     /**
-     * Creates order for provided cart if it does not exist
-     * @param $cart
+     * Send AJAX response
+     * @param array $data
      */
-    protected function createOrderIfRequired(Cart $cart): void
+    private function sendAjax(array $data): void
     {
-        $orderId = Order::getIdByCartId($cart->id);
-        if ($orderId) {
-            $order = new Order($orderId);
-            if (Validate::isLoadedObject($order)) {
-                return;
-            }
+        EcpLogger::log('Sending AJAX response: ' . json_encode($data, JSON_UNESCAPED_UNICODE));
+
+        header('Content-Type: application/json; charset=utf-8');
+        header('Cache-Control: no-cache, must-revalidate');
+        die(json_encode($data, JSON_UNESCAPED_UNICODE));
+    }
+
+    private function getPaymentMethod(): string
+    {
+        if (!$paymentMethod = Tools::getValue('payment_method')) {
+            EcpLogger::log('Not selected payment method', ['severity' => 3]);
+            throw new Exception('Selected payment method is null');
         }
+        return $paymentMethod;
+    }
 
-        $total = number_format($cart->getOrderTotal(true, 3), 2, '.', '');
-        $currency =  new Currency($cart->id_currency);
-
-        $this->module->validateOrder(
-            $cart->id,
-            Configuration::get('PS_OS_ECOMMPAY_PENDING'),
-            $total,
-            $this->module->displayName,
-            null,
-            array('transaction_id' => $cart->id),
-            $currency->id,
-            false,
-            $cart->secure_key
-        );
+    private function getOrCreatePaymentId(string $paymenMethod): string
+    {
+        if ($paymenMethod === EcpPayment::CARD_PAYMENT_METHOD && EcommpayConfig::getCardDisplayMode() === EcommpayConfig::EMBEDDED_DISPLAY_MODE) {
+            if(!$paymentId = Tools::getValue('payment_id')) {
+                EcpLogger::log('Not provided payment id for embedded mode', ['severity' => 3]);
+                throw new Exception('Not provided payment id for embedded mode');
+            }
+        } else {
+            $paymentId = EcpPaymentService::generatePaymentID();
+        }
+        return $paymentId;
     }
 }
