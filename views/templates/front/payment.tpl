@@ -1,15 +1,22 @@
 <div class="row">
-    <div class="col-xs-12">
-        <p class="payment_module">
-            <a
-                class="ecommpay"
-                href="{$paymentUrl}"
-                title="{l s=$paymentTitle mod='ecommpay'}">
-                {l s=$paymentTitle mod='ecommpay'}
-                {if $paymentDescription}
-                    <span>({l s=$paymentDescription mod='ecommpay'})</span>
-                {/if}
-            </a>
-        </p>
-    </div>
+  <input type="hidden" name="payment_method_code" value="{$paymentMethodCode}" />
+  {if $paymentMethodCode == 'card' && $paymentCardDisplayMode == 'embedded'}
+    <div id="ecommpay-iframe"></div>
+  {else}
+    <p class="payment_module">
+      {if $paymentMethodDescription}
+        <span>{l s=$paymentMethodDescription mod='ecommpay'}</span>
+      {/if}
+    </p>
+  {/if}
+</div>
+
+<div id="ecommpay-errors-container" class="alert alert-danger" style="display: none;"></div>
+
+<div id="ecommpay-loader" style="display: none;">
+  <div class="ecommpay-loader-overlay"></div>
+  <div class="ecommpay-loader-content">
+    <div class="ecommpay-loader-spinner"></div>
+    <div class="ecommpay-loader-text">{l s='Processing payment...' mod='ecommpay'}</div>
+  </div>
 </div>

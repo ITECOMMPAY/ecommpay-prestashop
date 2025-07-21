@@ -24,6 +24,10 @@
 *  International Registered Trademark & Property of PrestaShop SA
 */
 
+if (!defined('_PS_VERSION_')) {
+    exit;
+}
+
 if ((bool)Configuration::get('PS_MOBILE_DEVICE'))
 	require_once(_PS_MODULE_DIR_ . '/mobile_theme/Mobile_Detect.php');
 

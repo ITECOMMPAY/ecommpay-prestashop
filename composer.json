@@ -1,0 +1,45 @@
+{
+  "name": "ecommpay/prestashop",
+  "description": "Ecommpay payment module for PrestaShop",
+  "version": "2.0.0",
+  "type": "prestashop-module",
+  "require": {
+    "ecommpay/paymentpage-sdk": "^1.5",
+    "php": ">=7.2 <8.4",
+    "ext-curl": "*",
+    "ext-dom": "*",
+    "ext-fileinfo": "*",
+    "ext-gd": "*",
+    "ext-iconv": "*",
+    "ext-intl": "*",
+    "ext-json": "*",
+    "ext-mbstring": "*",
+    "ext-openssl": "*",
+    "ext-pdo": "*",
+    "ext-pdo_mysql": "*",
+    "ext-simplexml": "*",
+    "ext-zip": "*"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^8.5"
+  },
+  "repositories": {
+    "ecommpay/paymentpage-sdk": {
+      "type": "git",
+      "url": "https://github.com/ITECOMMPAY/paymentpage-sdk-php.git"
+    }
+  },
+  "autoload": {
+    "psr-4": {
+      "Ecommpay\\": "src/",
+      "Ecommpay\\controllers\\": "controllers/",
+      "Ecommpay\\Tests\\": "tests/"
+    },
+    "classmap": [
+      "ecommpay.php"
+    ]
+  },
+  "config": {
+    "prepend-autoloader": false
+  }
+}

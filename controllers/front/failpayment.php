@@ -1,11 +1,22 @@
 <?php
+
 declare(strict_types=1);
+
+if (!defined('_PS_VERSION_')) {
+    exit;
+}
+
+use Ecommpay\EcpLogger;
+use PrestaShopException;
 
 /**
  * @since 1.5.0
  */
 class EcommpayFailPaymentModuleFrontController extends ModuleFrontController
 {
+    /**
+     * @throws PrestaShopException
+     */
     public function initContent()
     {
         parent::initContent();

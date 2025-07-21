@@ -1,0 +1,86 @@
+p.payment_module a.ecommpay {
+  background: url(../logo.png) 15px 0 no-repeat #fbfbfb;
+  background-size: contain;
+  padding-left: 110px;
+}
+
+p.payment_module a.ecommpay:after {
+  display: block;
+  content: "\f054";
+  position: absolute;
+  right: 15px;
+  margin-top: -11px;
+  top: 50%;
+  font-family: "FontAwesome", serif;
+  font-size: 25px;
+  height: 22px;
+  width: 14px;
+  color: #777;
+}
+
+/* Styles for embedded payment iframe */
+.payment-iframe-container {
+  margin: 15px 0;
+  padding: 15px;
+  border: 1px solid #d6d4d4;
+  border-radius: 4px;
+  background: #fff;
+}
+
+/* Error container styles */
+#ecommpay-error-container {
+  margin: 15px 0;
+  display: none;
+}
+
+
+#ecommpay-loader {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 999999;
+}
+
+.ecommpay-loader-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.ecommpay-loader-content {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.ecommpay-loader-spinner {
+  width: 50px;
+  height: 50px;
+  border: 5px solid #f3f3f3;
+  border-top: 5px solid #3498db;
+  border-radius: 50%;
+  animation: ecommpay-spin 1s linear infinite;
+  margin: 0 auto 15px;
+}
+
+.ecommpay-loader-text {
+  color: #333;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+@keyframes ecommpay-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
