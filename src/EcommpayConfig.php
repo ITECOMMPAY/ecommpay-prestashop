@@ -84,7 +84,7 @@ class EcommpayConfig
         $settings = Configuration::getMultiple(array_keys(self::SETTINGS_FIELDS));
 
         foreach (self::SETTINGS_FIELDS as $field => $defaultValue) {
-            if (!isset($settings[$field]) || $settings[$field] === '') {
+            if (!isset($settings[$field])) {
                 $settings[$field] = $defaultValue;
             }
         }
@@ -134,7 +134,7 @@ class EcommpayConfig
 
     public static function saveSettings(): void
     {
-        $activeTab = Tools::getValue('tab', 'general_settings');
+        $activeTab = Tools::getValue('tab') ?: 'general_settings';
         $tabFields = self::getTabFields($activeTab);
 
         foreach ($tabFields as $field) {
@@ -146,10 +146,10 @@ class EcommpayConfig
 
             // Special handling for boolean/checkbox fields
             if (is_bool($defaultValue)) {
-                $value = (bool)Tools::getValue($field, false);
+                $value = (bool)Tools::getValue($field);
             }
             else {
-                $value = Tools::getValue($field, Configuration::get($field));
+                $value = Tools::getValue($field);
             }
 
             Configuration::updateValue($field, is_numeric($value) ? (int)$value : $value);

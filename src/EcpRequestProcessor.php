@@ -8,13 +8,18 @@ if (!defined('_PS_VERSION_')) {
     exit;
 }
 
-use Db;
-use Exception;
+use ecommpay\SignatureHandler;
+use Ecommpay\exceptions\EcpGatewayException;
+use PrestaShopDatabaseException;
 use PrestaShopException;
+use Symfony\Contracts\HttpClient\Exception\HttpExceptionInterface;
+use Symfony\Contracts\HttpClient\Exception\TransportExceptionInterface;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
+
 
 class EcpRequestProcessor
 {
-    private const ECOMMPAY_BASE_URL = 'https://api.ecommpay.com';
+    private const ECOMMPAY_BASE_URL = 'api.ecommpay.com';
     private const GATE_REFUND_ENDPOINT = '/v2/payment/card/refund';
 
     /**
@@ -25,40 +30,41 @@ class EcpRequestProcessor
      * @var EcpPaymentService
      */
     private $paymentService;
+    /**
+     * @var HttpClientInterface
+     */
+    private $httpClient;
 
-    public function __construct($signer, $paymentService)
+    public function __construct(SignatureHandler $signer, EcpPaymentService $paymentService, HttpClientInterface $httpClient)
     {
         $this->signer = $signer;
         $this->paymentService = $paymentService;
+        $this->httpClient = $httpClient;
     }
 
     /**
-     * @param string $orderId
+     * @param int $orderId
      * @param float $amount
      * @param string $currency
      * @param string $reason
-     * @return EcpCallbackResult
-     * @throws Exception
+     * @return string
+     * @throws PrestaShopException
+     * @throws PrestaShopDatabaseException
+     * @throws EcpGatewayException
      */
     public function sendPostRequest(
-        int  $orderId,
-        float $amount,
+        int    $orderId,
+        float  $amount,
         string $currency,
         string $reason = ''
-    ): EcpCallbackResult {
-
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, self::getGateEndpoint());
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-
+    ): string
+    {
         $order = new EcpOrder($orderId);
 
         $requestData = [
             'general' => [
                 'project_id' => $this->paymentService->getProjectId(),
-                'payment_id' => $order->ecp_payment_id,
+                'payment_id' => $order->getPaymentId(),
                 'merchant_callback_url' => EcpHelper::getCallbackUrl()
             ],
             'payment' => [
@@ -71,51 +77,50 @@ class EcpRequestProcessor
 
         $requestData['general']['signature'] = $this->signer->sign($requestData);
 
-        curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: application/json'));
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($requestData));
-        $out = curl_exec($ch);
-        $httpStatus = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        try {
+            $response = $this->httpClient->request('POST', self::getGateEndpoint(), [
+                'headers' => [
+                    'Content-Type' => 'application/json',
+                ],
+                'json' => $requestData,
+                'verify_peer' => true,
+            ]);
 
-        if (curl_errno($ch)) {
-            throw new Exception('Ecommpay refund ended with error: ' . curl_error($ch));
+            $httpStatus = $response->getStatusCode();
+            $content = $response->getContent(false);
+
+            $data = json_decode($content, true);
+            if ($data === null) {
+                throw new EcpGatewayException('Malformed response');
+            }
+
+            if ($httpStatus !== 200) {
+                $errorMessage = 'Refund request failed (HTTP ' . $httpStatus . ')';
+                if (isset($data['message'])) {
+                    $errorMessage .= ': ' . $data['message'];
+                }
+                throw new EcpGatewayException($errorMessage);
+            }
+
+            if (!isset($data['request_id'])) {
+                throw new EcpGatewayException('Response missing request_id');
+            }
+
+            return $data['request_id'];
+
+        } catch (TransportExceptionInterface $e) {
+            throw new EcpGatewayException('Ecommpay refund ended with error: ' . $e->getMessage());
+        } catch (HttpExceptionInterface $e) {
+            throw new EcpGatewayException('Ecommpay refund ended with HTTP error: ' . $e->getMessage());
         }
-
-        $data = json_decode($out, true);
-        if ($data === null) {
-            throw new Exception('Malformed response');
-        }
-
-        if ($httpStatus != 200) {
-            return (new EcpCallbackResult(null, $data['status'], $data['message']))
-                ->setPaymentStatus($data['payment']['status']);
-        }
-
-        $this->updatePaymentMethod($orderId, $data['payment']['method']);
-
-        return (new EcpCallbackResult($data['request_id'], $data['status']))
-            ->setPaymentStatus($data['payment']['status']);
     }
 
     protected function getGateEndpoint(): string
     {
         $protocol = getenv('ECP_PROTO') ?: 'https';
         $envHost = getenv('ECOMMPAY_GATE_HOST');
-        $baseUrl = $envHost ? $protocol . '://' . $envHost : self::ECOMMPAY_BASE_URL;
+        $baseUrl = $envHost ? $protocol . '://' . $envHost : $protocol . '://' . self::ECOMMPAY_BASE_URL;
 
         return $baseUrl . self::GATE_REFUND_ENDPOINT;
-    }
-
-    /**
-     * @throws PrestaShopException
-     */
-    private function updatePaymentMethod($orderId, $paymentCode): void
-    {
-        $db = Db::getInstance();
-        $db->update(
-            'orders',
-            ['payment' => pSQL($paymentCode)],
-            'id_order = ' . (int)$orderId
-        );
     }
 }

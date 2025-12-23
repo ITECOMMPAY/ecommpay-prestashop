@@ -1,12 +1,12 @@
 {
   "name": "ecommpay/prestashop",
   "description": "Ecommpay payment module for PrestaShop",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "type": "prestashop-module",
   "require": {
     "ecommpay/paymentpage-sdk": "^1.5",
     "php": ">=7.2 <8.4",
-    "ext-curl": "*",
+    "symfony/http-client": "^5.4|^6.0|^7.0",
     "ext-dom": "*",
     "ext-fileinfo": "*",
     "ext-gd": "*",
@@ -32,11 +32,11 @@
   "autoload": {
     "psr-4": {
       "Ecommpay\\": "src/",
-      "Ecommpay\\controllers\\": "controllers/",
       "Ecommpay\\Tests\\": "tests/"
     },
     "classmap": [
-      "ecommpay.php"
+      "ecommpay.php",
+      "controllers/"
     ]
   },
   "config": {

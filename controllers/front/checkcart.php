@@ -17,11 +17,14 @@ class EcommpayCheckcartModuleFrontController extends ModuleFrontController
         $amount = $cart->getOrderTotal();
         $requestAmount = Tools::getValue('amount');
 
-        if ($amount !== $requestAmount) {
-            $this->response = json_encode(['amount_is_equal' => false]);
-            return;
-        }
+        $this->sendJsonResponse(['amount_is_equal' => $amount !== $requestAmount]);
+    }
 
-        $this->response = json_encode(['amount_is_equal' => true]);
+    protected function sendJsonResponse(array $data, int $httpStatusCode = 200)
+    {
+        header('Content-Type: application/json');
+        http_response_code($httpStatusCode);
+        echo json_encode($data);
+        exit;
     }
 }

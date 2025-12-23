@@ -39,7 +39,7 @@ if (version_compare(_PS_VERSION_, '1.4', '<'))
 	{
 		public $id = 1;
 		public $id_shop_group = 1;
-		
+
 		public function __construct()
 		{
 		}
@@ -260,8 +260,8 @@ class ShopBackwardModule extends Shop
 
 	public $id = 1;
 	public $id_shop_group = 1;
-	
-	
+
+
 	public function getContextType()
 	{
 		return ShopBackwardModule::CONTEXT_ALL;
@@ -272,7 +272,7 @@ class ShopBackwardModule extends Shop
 	{
 		return 1;
 	}
-	
+
 	/**
 	 * Get shop theme name
 	 *
@@ -330,7 +330,7 @@ class ControllerBackwardModule
  */
 class CustomerBackwardModule extends Customer
 {
-	public $logged = false; 
+	public $logged = false;
 	/**
 	 * Check customer informations and return customer validity
 	 *

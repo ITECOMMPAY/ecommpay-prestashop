@@ -43,9 +43,10 @@ class EcpPaymentService
      */
     public static function getPaymentPageBaseUrl(): string
     {
+        $protocol = getenv('ECP_PROTO') ?: 'https';
         $hostFromEnv = getenv('PAYMENTPAGE_HOST');
         $host = is_string($hostFromEnv) ? $hostFromEnv : self::PAYMENTPAGE_HOST;
-        return 'https://' . $host;
+        return $protocol . '://' . $host;
     }
 
     public static function getInterfaceType(): array

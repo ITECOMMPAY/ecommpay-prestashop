@@ -12,6 +12,7 @@ use Configuration;
 use CustomerMessage;
 use CustomerThread;
 use Order;
+use PrestaShopException;
 use Tools;
 use Ecommpay\exceptions\EcpBadRequestException;
 
@@ -33,7 +34,9 @@ class EcpOrderManager
             $order_message = new CustomerMessage();
             $order_message->id_customer_thread = $thread_id;
             $order_message->private = 1;
-            $order_message->id_employee = $this->context->employee->id;
+            if ($this->context->employee) {
+                $order_message->id_employee = $this->context->employee->id;
+            }
             $order_message->message = $message;
             $order_message->save();
         } catch (PrestaShopException $e) {
@@ -75,6 +78,10 @@ class EcpOrderManager
         return new EcpOrderSlip($slip->id);
     }
 
+    /**
+     * @throws PrestaShopException
+     * @throws EcpBadRequestException
+     */
     public function setNewOrderStatus(Order $order, EcpCallback $callback): void
     {
         if (!$paymentStatus = $callback->getPaymentStatus()) {
@@ -94,5 +101,6 @@ class EcpOrderManager
         }
 
         $order->setCurrentState($stateId);
+        $order->save();
     }
 }

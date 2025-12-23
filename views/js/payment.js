@@ -6,33 +6,35 @@
 
 'use strict'
 
-console.log('payment.js loaded')
-
 const MESSAGES = {
   SUBMIT: 'epframe.embedded_mode.submit',
   CHECK_VALIDATION: 'epframe.embedded_mode.check_validation',
 }
 
+const PLACE_ORDER_BUTTON_SELECTOR = '#payment-confirmation button[type=submit]'
+
 class EcommpayPaymentHandler {
   constructor() {
     this.isProcessing = false
-    this.redirectUrl = null
     this.paymentConfig = null
     this.orderId = null
+    this.widgetInstance = null
+    this.validationResolve = null
+    this.isClarificationRunnig = false
     this.host = window.ECOMMPAY_HOST || 'https://paymentpage.ecommpay.com'
     this.cardDisplayMode = window.ECOMMPAY_CARD_DISPLAY_MODE
-    this.init()
+    this.init().then()
   }
 
-  init() {
+  async init() {
     this.queueEcommpayResources()
     this.setupPaymentButtons()
-    if (this.isPaymentMethodEnabled('card') && this.cardDisplayMode == 'embedded') {
-      this.refreshPaymentConfig().then(() => {
-        this.initEmbeddedMode()
-      })
-    }
+    this.checkForPaymentDeclinedMessage()
     this.setupApplePay()
+    if (this.isPaymentMethodEnabled('card') && this.cardDisplayMode === 'embedded') {
+      await this.waitForMerchantJS()
+      await this.reloadEmbeddedIframe()
+    }
   }
 
   queueEcommpayResources() {
@@ -51,77 +53,299 @@ class EcommpayPaymentHandler {
   }
 
   setupPaymentButtons() {
-    const confirmOrderBtn = $('#payment-confirmation button[type=submit]')
-    confirmOrderBtn.on('click', (e) => {
+    const confirmOrderBtn = $(PLACE_ORDER_BUTTON_SELECTOR)
+    confirmOrderBtn.on('click', async (e) => {
       e.preventDefault()
       e.stopPropagation()
-      this.handlePaymentButtonClick(e)
+      if (this.isProcessing) {
+        return
+      }
+      this.isProcessing = true
+      if (this.isEmbeddedModeSelected()) {
+        return await this.handleEmbeddedMode()
+      }
+      return await this.handleRedirectAndPopup()
     })
   }
 
-  handlePaymentButtonClick() {
-    if (!this.isEmbeddedModeSelected()) {
-      this.createOrder()
-      return
+  checkForPaymentDeclinedMessage() {
+    if (window.ECOMMPAY_PAYMENT_DECLINED_MESSAGE) {
+      this.showError(window.ECOMMPAY_PAYMENT_DECLINED_MESSAGE)
+      this.clearPaymentDeclinedMessage()
     }
-    if (this.isProcessing) {
-      console.log('Payment is already processing')
-      return
-    }
-    this.checkValidation()
   }
 
-  checkValidation() {
-    this.sendIframePostMessage({
-      message: MESSAGES.CHECK_VALIDATION,
+  clearPaymentDeclinedMessage() {
+    $.ajax({
+      url: window.ECOMMPAY_CLEAR_MESSAGE_URL,
+      method: 'POST',
+      error: (jqXHR, textStatus, errorThrown) => {
+        console.error('Failed to clear message:', textStatus)
+      },
+    })
+  }
+
+  waitForMerchantJS() {
+    return new Promise((resolve) => {
+      const check = () => {
+        if (window.EPayWidget) {
+          resolve()
+        } else {
+          setTimeout(check, 100)
+        }
+      }
+      check()
+    })
+  }
+
+  async reloadEmbeddedIframe() {
+    try {
+      this.initEmbeddedMode(await this.refreshPaymentConfig(this.getSelectedPaymentMethod(), this.orderId))
+    } catch (error) {
+      this.showError(error.message)
+      console.error(error)
+    }
+  }
+
+  async handleRedirectAndPopup() {
+    try {
+      const { redirect_host, redirect_params } = await this.createOrder(this.getSelectedPaymentMethod())
+      if (this.isPopupModeSelected()) {
+        this.hideLoader()
+        this.openPopup(redirect_params)
+      } else {
+        window.location.replace(this.buildRedirectUrl(redirect_host, redirect_params))
+      }
+    } catch (error) {
+      this.isProcessing = false
+      this.hideLoader()
+      console.error(error)
+      this.showError(error.message)
+    }
+  }
+
+  async handleEmbeddedMode() {
+    if (this.isClarificationRunnig) {
+      if (!(await this.validateCardForm())) {
+        return
+      }
+      this.showLoader()
+      this.submitCardForm()
+      this.isClarificationRunnig = false
+      return
+    }
+
+    try {
+      if (!(await this.validateCardForm())) {
+        return
+      }
+      this.showLoader()
+      await this.checkAmountIsEqual(this.paymentConfig?.payment_amount)
+      const { order_id } = await this.createOrder(this.getSelectedPaymentMethod(), this.paymentConfig?.payment_id)
+      this.orderId = order_id
+      this.submitCardForm()
+    } catch (error) {
+      console.error(error)
+      this.isProcessing = false
+      this.hideLoader()
+      this.showError(error.message)
+    }
+  }
+
+  checkAmountIsEqual(paymentAmount) {
+    return new Promise((resolve, reject) => {
+      $.ajax({
+        url: window.ECOMMPAY_CHECK_CART_URL,
+        method: 'POST',
+        data: {
+          amount: paymentAmount,
+        },
+        success: (response) => {
+          if (!response.amount_is_equal) {
+            window.location.reload()
+            return
+          }
+          resolve()
+        },
+        error: (jqXHR, textStatus, errorThrown) => {
+          console.error('Cart check failed:', { jqXHR, textStatus, errorThrown })
+          this.showError('Error checking cart: ' + (errorThrown || textStatus))
+          this.isProcessing = false
+          this.hideLoader()
+          reject('Error checking cart: ' + (errorThrown || textStatus))
+        },
+      })
+    })
+  }
+
+  validateCardForm() {
+    return new Promise((resolve, reject) => {
+      this.widgetInstance.sendPostMessage({
+        message: MESSAGES.CHECK_VALIDATION,
+        from_another_domain: true,
+      })
+      this.validationResolve = resolve
+    })
+  }
+
+  submitCardForm(fields) {
+    this.widgetInstance.sendPostMessage({
+      message: MESSAGES.SUBMIT,
+      fields: fields || {},
       from_another_domain: true,
     })
   }
 
-  submitIframe() {
-    console.log('Submitting iframe...')
-    this.showLoader()
-    this.isProcessing = true
-
-    $.ajax({
-      url: window.ECOMMPAY_CHECK_CART_URL,
-      method: 'POST',
-      data: {
-        amount: this.paymentAmount,
-      },
-      success: (response) => {
-        console.log('Cart check response:', response)
-        if (!response.amount_is_equal) {
-          console.log('Cart amount changed, reloading page')
-          window.location.reload()
-          return
-        }
-
-        this.sendIframePostMessage({
-          message: MESSAGES.SUBMIT,
-          fields: {},
-          from_another_domain: true,
-        })
-      },
-      error: (jqXHR, textStatus, errorThrown) => {
-        console.error('Cart check failed:', { jqXHR, textStatus, errorThrown })
-        this.showError('Error checking cart: ' + (errorThrown || textStatus))
-        this.isProcessing = false
-        this.hideLoader()
-      },
+  refreshPaymentConfig(paymentMethod, orderId) {
+    return new Promise((resolve, reject) => {
+      $.ajax({
+        url: window.ECOMMPAY_PAYMENT_INFO_URL,
+        method: 'GET',
+        dataType: 'json',
+        data: {
+          payment_method: paymentMethod,
+          order_id: orderId,
+        },
+        success: (data) => {
+          if (!data.success) {
+            return reject(new Error('Failed to fetch card payment page parameters: ' + data.error))
+          }
+          this.paymentConfig = data.payment_config ?? null
+          resolve(data.payment_config ?? null)
+        },
+        error: (jqXHR, textStatus, errorThrown) => {
+          reject(new Error('Failed to fetch card payment page parameters: ' + textStatus))
+        },
+      })
     })
   }
 
-  sendIframePostMessage(message) {
-    console.log('Sending post message:', message)
-    window.postMessage(JSON.stringify(message), '*')
+  getPaymentConfig(paramsObject) {
+    return {
+      ...paramsObject,
+    }
   }
 
-  /**
-   * Returns selected payment method
-   * f.e. 'card'
-   * @returns {*|jQuery}
-   */
+  initEmbeddedMode(paymentConfig) {
+    const config = this.getPaymentConfig(paymentConfig)
+    config.onLoaded = () => {
+      jQuery('#ecommpay-iframe').height('auto')
+      this.hideLoader()
+    }
+    config.onPaymentFail = async (data) => {
+      this.hideLoader()
+      this.isProcessing = false
+      try {
+        await this.restoreCart()
+      } catch (error) {
+        console.error(error)
+        this.showError(error.message)
+      }
+      await this.reloadEmbeddedIframe()
+    }
+    config.onEmbeddedModeCheckValidationResponse = (data) => {
+      if (data && Object.keys(data).length > 0) {
+        this.showError(Object.values(data)[0])
+        this.isProcessing = false
+        this.validationResolve(false)
+        return
+      }
+      this.validationResolve(true)
+    }
+    config.onEnterKeyPressed = () => {
+      $(PLACE_ORDER_BUTTON_SELECTOR).click()
+    }
+    config.onPaymentSent = () => {
+      this.showLoader()
+    }
+    config.onSubmitClarificationForm = () => {
+      this.showLoader()
+    }
+    config.onShowClarificationPage = () => {
+      this.isClarificationRunnig = true
+      this.isProcessing = false
+      this.hideLoader()
+    }
+    config.onEmbeddedModeRedirect3dsParentPage = (data) => {
+      this.handle3DSRedirect(data)
+    }
+    try {
+      this.widgetInstance = EPayWidget.run(config, 'POST')
+    } catch (error) {
+      console.error(error)
+      throw new Error('An error occurred while opening the embedded payment page: ' + error.message)
+    }
+  }
+
+  openPopup(paramsObject) {
+    const config = this.getPaymentConfig(paramsObject)
+    config.frame_mode = this.cardDisplayMode
+    config.onExit = async () => {
+      await this.restoreCartForPopup()
+    }
+    config.onDestroy = async () => {
+      await this.restoreCartForPopup()
+    }
+    try {
+      this.widgetInstance = EPayWidget.run(config, 'GET')
+    } catch (error) {
+      console.error(error)
+      throw new Error('An error occurred while opening the payment popup page: ' + error.message)
+    }
+  }
+
+  buildRedirectUrl(baseUrl, paramsObject) {
+    const redirectUrl = new URL(baseUrl)
+    Object.entries(paramsObject).forEach(([key, value]) => {
+      redirectUrl.searchParams.set(key, value)
+    })
+    return redirectUrl.toString()
+  }
+
+  createOrder(paymentMethod, paymentId) {
+    this.showLoader()
+    return new Promise((resolve, reject) => {
+      const data = { payment_method: paymentMethod }
+      if (paymentId) {
+        data.payment_id = paymentId
+      }
+      $.ajax({
+        url: window.ECOMMPAY_PAYMENT_URL,
+        method: 'POST',
+        dataType: 'json',
+        data: data,
+        success: (response) => {
+          if (!response || typeof response !== 'object') {
+            return reject(new Error('Invalid server response format'))
+          }
+          if (!response.success) {
+            return reject(new Error(response.error || 'Error processing order'))
+          }
+          resolve(response)
+        },
+        error: (jqXHR, textStatus, errorThrown) => {
+          reject('Error processing order: ' + (errorThrown || textStatus))
+        },
+      })
+    })
+  }
+
+  handle3DSRedirect(data) {
+    var form = document.createElement('form')
+    form.setAttribute('method', data.method)
+    form.setAttribute('action', data.url)
+    form.setAttribute('style', 'display:none;')
+    form.setAttribute('name', '3dsForm')
+    for (let k in data.body) {
+      const input = document.createElement('input')
+      input.name = k
+      input.value = data.body[k]
+      form.appendChild(input)
+    }
+    document.body.appendChild(form)
+    form.submit()
+  }
+
   getSelectedPaymentMethod() {
     const checkedOptions = $('.payment-options [type=radio]:checked')
     if (checkedOptions.length === 0) {
@@ -143,308 +367,6 @@ class EcommpayPaymentHandler {
     return this.getSelectedPaymentMethod() === 'card' && this.cardDisplayMode === 'popup'
   }
 
-  refreshPaymentConfig() {
-    return new Promise((resolve, reject) => {
-      if (typeof EPayWidget === 'undefined') {
-        setTimeout(() => {
-          this.refreshPaymentConfig().then(() => {
-            resolve()
-          })
-        }, 100)
-        return
-      }
-      const _this = this
-      $.ajax({
-        url: window.ECOMMPAY_PAYMENT_INFO_URL,
-        method: 'GET',
-        dataType: 'json',
-        data: {
-          payment_method: this.getSelectedPaymentMethod(),
-          order_id: this.orderId,
-        },
-        success: function (data) {
-          if (!data.success) {
-            _this.showError('Failed to initialize payment page: ' + data.error)
-            return
-          }
-          _this.paymentConfig = data.payment_config
-          console.log('Payment config refreshed.', _this.paymentConfig)
-          resolve()
-        },
-        error: function (jqXHR, textStatus, errorThrown) {
-          _this.showError('Failed to initialize payment page: ' + textStatus)
-          reject()
-        },
-      })
-    })
-  }
-
-  getPaymentConfig(paramsObject) {
-    return {
-      ...paramsObject,
-      onLoaded: () => {
-        console.log('Payment widget loaded')
-        jQuery('#ecommpay-iframe').height('auto')
-        this.hideLoader()
-      },
-      onEmbeddedModeCheckValidationResponse: (data) => {
-        console.log('Validation response received:', data)
-        this.handleValidationResponse(data)
-      },
-      onEnterKeyPressed: () => {
-        console.log('Enter key pressed')
-        $('#payment-confirmation button[type=submit]').click()
-      },
-      onPaymentSent: () => {
-        console.log('Payment sent - showing loader')
-        this.isProcessing = true
-        this.showLoader()
-      },
-      onSubmitClarificationForm: () => {
-        console.log('Submitting clarification form - showing loader')
-        this.showLoader()
-      },
-      onShowClarificationPage: () => {
-        console.log('Showing clarification page - hiding loader')
-        this.isProcessing = false
-        this.hideLoader()
-        this.handleClarification()
-      },
-      onEmbeddedModeRedirect3dsParentPage: (data) => {
-        console.log('3DS redirect - showing loader')
-        this.showLoader()
-        this.handle3DSRedirect(data)
-      },
-      onPaymentSuccess: (data) => {
-        console.log('Payment success - showing loader')
-        this.showLoader()
-        this.handlePaymentSuccess(data)
-      },
-      onCardVerifySuccess: (data) => {
-        console.log('Card verification success - showing loader')
-        this.showLoader()
-        this.handlePaymentSuccess(data)
-      },
-      onPaymentFail: (data) => {
-        console.log('Payment failed - showing loader')
-        this.showLoader()
-        this.handlePaymentFail(data)
-      },
-      onCardVerifyFail: (data) => {
-        console.log('Card verification failed - showing loader')
-        this.showLoader()
-        this.handlePaymentFail(data)
-      },
-    }
-  }
-
-  initEmbeddedMode() {
-    const config = this.getPaymentConfig(this.paymentConfig)
-    config.frame_mode = this.cardDisplayMode
-    console.log('Initializing embedded mode with config:', config)
-    EPayWidget.run(config, 'POST')
-  }
-
-  openPopup(paramsObject) {
-    try {
-      const config = this.getPaymentConfig(paramsObject)
-      config.frame_mode = this.cardDisplayMode
-      console.log('Initializing popup mode with config:', config)
-      EPayWidget.run(config, 'GET')
-    } catch (error) {
-      console.error('Payment error:', error)
-      this.showError(error.message || 'Payment request failed. Please try again.')
-      this.isProcessing = false
-      this.hideLoader()
-    }
-  }
-
-  buildRedirectUrl(baseUrl, paramsObject) {
-    const redirectUrl = new URL(baseUrl)
-    Object.entries(paramsObject).forEach(([key, value]) => {
-      redirectUrl.searchParams.set(key, value)
-    })
-    return redirectUrl.toString();
-  }
-
-  makeRedirect(url) {
-    this.isProcessing = true
-    this.showLoader()
-    console.log('Redirecting to:', url)
-    window.location.replace(url)
-  }
-
-  handleValidationResponse(data) {
-    if (data && Object.keys(data).length > 0) {
-      this.showError(Object.values(data)[0])
-      return
-    }
-
-    this.createOrder()
-  }
-
-  createOrder() {
-    this.showLoader()
-    this.isProcessing = true
-    console.log('Creating order...')
-    const _this = this
-
-    const data = {payment_method: _this.getSelectedPaymentMethod()}
-    if (this.isEmbeddedModeSelected()) {
-      data.payment_id = this.paymentConfig.payment_id;
-    }
-
-    $.ajax({
-      url: window.ECOMMPAY_PAYMENT_URL,
-      method: 'POST',
-      dataType: 'json',
-      data: data,
-      success: (response) => {
-        console.log('Create order response:', response)
-
-        if (!response || typeof response !== 'object') {
-          console.error('Invalid response format:', response)
-          _this.showError('Invalid server response format')
-          _this.isProcessing = false
-          _this.hideLoader()
-          return
-        }
-
-        if (!response.success) {
-          console.error('Create order failed:', response.error)
-          _this.showError(response.error || "Error processing order. Can't load Order status.")
-          _this.isProcessing = false
-          _this.hideLoader()
-          return
-        }
-
-        // Store cart state
-        if (window.prestashop && window.prestashop.cart) {
-          localStorage.setItem(
-            'ecommpay_cart_state',
-            JSON.stringify({
-              timestamp: Date.now(),
-              cartId: window.prestashop.cart.id,
-            })
-          )
-        }
-
-        if (response.order_id) {
-          _this.orderId = response.order_id
-        }
-
-        if (_this.isEmbeddedModeSelected()) {
-          _this.sendIframePostMessage({
-            message: MESSAGES.SUBMIT,
-            fields: {},
-            from_another_domain: true,
-          })
-        } else if (_this.isPopupModeSelected()) {
-          _this.openPopup(response.redirect_params);
-        } else {
-          _this.makeRedirect(
-            _this.buildRedirectUrl(response.redirect_host, response.redirect_params)
-          )
-        }
-      },
-      error: (jqXHR, textStatus, errorThrown) => {
-        console.error('Create order error:', { jqXHR, textStatus, errorThrown })
-        _this.showError('Error processing order: ' + (errorThrown || textStatus))
-      },
-    })
-  }
-
-
-
-  handlePaymentSuccess(data) {
-    const orderId = data?.payment?.id || data?.order_id
-    let successUrl = data?.redirect_success_url || window.ECOMMPAY_SUCCESS_URL
-
-    if (successUrl) {
-      if (orderId) {
-        successUrl += (successUrl.includes('?') ? '&' : '?') + 'order_id=' + orderId
-      }
-      this.makeRedirect(successUrl)
-    } else {
-      this.showError('Payment successful but redirect URL is missing')
-    }
-  }
-
-  handlePaymentFail(data) {
-    const failUrl = data?.redirect_fail_url || window.ECOMMPAY_FAIL_URL
-    if (failUrl) {
-      this.makeRedirect(failUrl)
-    } else {
-      this.showError('Payment failed and redirect URL is missing')
-    }
-  }
-
-  handle3DSRedirect(data) {
-    if (!data) {
-      this.showError('Invalid 3DS response')
-      return
-    }
-
-    // 3DS v2
-    if (data.threeds2?.redirect) {
-      const { url, params } = data.threeds2.redirect
-      if (url) {
-        localStorage.setItem('ecommpay_3ds_params', JSON.stringify(params))
-        this.makeRedirect(url)
-        return
-      }
-    }
-
-    // 3DS v1
-    if (data.acs?.acs_url) {
-      const { acs_url, pa_req, md, term_url } = data.acs
-      if (acs_url) {
-        localStorage.setItem(
-          'ecommpay_3ds_params',
-          JSON.stringify({
-            pa_req,
-            md,
-            term_url,
-          })
-        )
-        this.makeRedirect(acs_url)
-        return
-      }
-    }
-
-    const form = document.createElement('form')
-    form.setAttribute('method', data.method)
-    form.setAttribute('action', data.url)
-    form.setAttribute('style', 'display:none;')
-    form.setAttribute('name', '3dsForm')
-
-    for (let k in data.body) {
-      const input = document.createElement('input')
-      input.name = k
-      input.value = data.body[k]
-      form.appendChild(input)
-    }
-
-    document.body.appendChild(form)
-    form.submit()
-  }
-
-  /**
-   * Handle clarification
-   */
-  handleClarification() {
-    this.clarificationRunning = true
-    this.isProcessing = false
-    this.hideLoader()
-
-    const submitData = {
-      message: MESSAGES.SUBMIT.message,
-      fields: {},
-      from_another_domain: true,
-    }
-    this.sendIframePostMessage(submitData)
-  }
-
   showLoader() {
     const loader = $('#ecommpay-loader')
     loader.fadeIn(200)
@@ -456,17 +378,32 @@ class EcommpayPaymentHandler {
   }
 
   showError(message) {
+    // Create error container if it doesn't exist
+    if ($('#ecommpay-errors-container').length === 0) {
+      $('body').prepend(
+        '<div id="ecommpay-errors-container" class="alert alert-danger" style="display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 9999; max-width: 500px;"></div>'
+      )
+    }
+
     $('#ecommpay-errors-container').html(message).show()
+
+    // Auto-hide message after 10 seconds
+    setTimeout(() => {
+      $('#ecommpay-errors-container').fadeOut(500)
+    }, 10000)
   }
 
   setupApplePay() {
     const applePayMethod = $('input[name=payment_method_code][value=applepay]')
-    const applePayMethodIndex = applePayMethod.closest('div.additional-information')
-      .attr('id').split('-')[2]
-    console.log('Apple Pay method index:', applePayMethodIndex)
+    const applePayMethodIdAttr = applePayMethod.closest('div.additional-information').attr('id')
+    if (!applePayMethodIdAttr) {
+      console.info('Apple Pay method not found / wrong checkout step / wrong page')
+      return
+    }
+    const applePayMethodIndex = applePayMethodIdAttr.split('-')[2]
 
-    const container = $('div#payment-option-'+applePayMethodIndex+'-container')
-    const additionalInfo = $('div#payment-option-'+applePayMethodIndex+'-additional-information')
+    const container = $('div#payment-option-' + applePayMethodIndex + '-container')
+    const additionalInfo = $('div#payment-option-' + applePayMethodIndex + '-additional-information')
     if (applePayMethod.length && !this.isApplePayAllowed()) {
       container.remove()
       additionalInfo.remove()
@@ -476,9 +413,34 @@ class EcommpayPaymentHandler {
   isApplePayAllowed() {
     return Object.prototype.hasOwnProperty.call(window, 'ApplePaySession') && ApplePaySession.canMakePayments()
   }
+
+  restoreCart() {
+    return new Promise((resolve, reject) => {
+      $.ajax({
+        url: window.ECOMMPAY_RESTORE_CART_URL,
+        method: 'POST',
+        success: async () => {
+          resolve()
+        },
+        error: (jqXHR, textStatus, errorThrown) => {
+          reject(new Error('Failed to restore cart: ' + textStatus))
+        },
+      })
+    })
+  }
+
+  async restoreCartForPopup() {
+    this.isProcessing = false
+    try {
+      await this.restoreCart()
+      this.showError('Payment was cancelled. You can try another payment method.')
+    } catch (error) {
+      console.error(error)
+      this.showError(error.message)
+    }
+  }
 }
 
-// Initialize payment handler when document is ready
 $(() => {
   if (window.ECOMMPAY_HOST) {
     window.ECPPaymentHandler = new EcommpayPaymentHandler()

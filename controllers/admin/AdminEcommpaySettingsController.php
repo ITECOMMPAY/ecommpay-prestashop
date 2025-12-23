@@ -6,9 +6,6 @@ if (!defined('_PS_VERSION_')) {
 
 use Ecommpay\EcommpayConfig;
 use Ecommpay\EcpHelper;
-use ModuleAdminController;
-use PrestaShopException;
-use Tools;
 
 class AdminEcommpaySettingsController extends ModuleAdminController
 {

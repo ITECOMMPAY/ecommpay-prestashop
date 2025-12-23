@@ -14,6 +14,7 @@ use Context;
 use Configuration;
 use Country;
 use Currency;
+use Exception;
 use Module;
 use State;
 
@@ -22,6 +23,8 @@ class EcpPaymentPageBuilder
     private const
         REDIRECT_AVAILABLE_ALWAYS = 2,
         REDIRECT_PARENT_WINDOW = 'parent_page';
+
+    private const TARGET_ELEMENT = 'ecommpay-iframe';
 
     private $module;
     private $context;
@@ -32,6 +35,9 @@ class EcpPaymentPageBuilder
         $this->context = $context;
     }
 
+    /**
+     * @throws Exception
+     */
     public function getCommonPaymentParameters(Cart $cart, array $additionalParams = []): array
     {
         $currency = new Currency($cart->id_currency);
@@ -43,16 +49,14 @@ class EcpPaymentPageBuilder
             'payment_amount' => EcpCurrencyConverter::transformCurrency($cart->getOrderTotal(), $currency->iso_code),
             'merchant_callback_url' => EcpHelper::getCallbackUrl(),
             'interface_type' => EcpPaymentService::getInterfaceTypeString(),
-            'merchant_success_url' => $this->context->link->getModuleLink(
-                'ecommpay',
-                'successpayment',
-                ['order_id' => $_GET['order_id'] ?? null]
-            ),
+            'merchant_success_url' => $this->buildOrderConfirmationUrl($cart),
             'merchant_success_enabled' => $this::REDIRECT_AVAILABLE_ALWAYS,
             'merchant_success_redirect_mode' => $this::REDIRECT_PARENT_WINDOW,
-            'merchant_fail_url' => $this->context->link->getModuleLink('ecommpay', 'failpayment'),
+            'merchant_fail_url' => $this->context->link->getModuleLink('ecommpay', 'restorecart'),
             'merchant_fail_enabled' => $this::REDIRECT_AVAILABLE_ALWAYS,
             'merchant_fail_redirect_mode' => $this::REDIRECT_PARENT_WINDOW,
+            'merchant_return_enabled' => $this::REDIRECT_AVAILABLE_ALWAYS,
+            'merchant_return_redirect_mode' => $this::REDIRECT_PARENT_WINDOW,
         ];
 
         $params = $this->addBillingAndCustomerInfo($params, $cart);
@@ -60,12 +64,31 @@ class EcpPaymentPageBuilder
 
         $params = array_merge($params, $additionalParams);
 
-        $params['signature'] = $this->module->signer->sign($params);
+        if (!$signer = $this->module->signer) {
+            throw new Exception('Signature handler is not configured');
+        }
 
+        $params['signature'] = $signer->sign($params);
         $params['_plugin_version'] = $this->module->version;
         $params['_prestashop_version'] = _PS_VERSION_;
 
         return $params;
+    }
+
+    /**
+     * Build order confirmation URL
+     * For new payments, we don't have order yet, so we'll use successpayment controller
+     * which will handle the redirect to order-confirmation after order is created
+     * @param Cart $cart
+     * @return string
+     */
+    private function buildOrderConfirmationUrl(Cart $cart): string
+    {
+        return $this->context->link->getModuleLink(
+            'ecommpay',
+            'successpayment',
+            ['cart_id' => $cart->id]
+        );
     }
 
     private function addBillingAndCustomerInfo(array $params, Cart $cart): array
@@ -77,7 +100,7 @@ class EcpPaymentPageBuilder
 
 
         $customerAndBillingParams = [
-            'customer_id' =>  $customer->id ?? null,
+            'customer_id' => $customer->id ?? null,
             'customer_first_name' => $customer->firstname ?? null,
             'customer_last_name' => $customer->lastname ?? null,
             'customer_email' => $customer->email ?? null,
@@ -91,11 +114,11 @@ class EcpPaymentPageBuilder
             'avs_post_code' => $address->postcode ?? null
         ];
 
-        $filtredCustomerAndBillingParams = array_filter($customerAndBillingParams, function ($value) {
+        $filteredCustomerAndBillingParams = array_filter($customerAndBillingParams, function ($value) {
             return $value !== null;
         });
 
-        return array_merge($params, $filtredCustomerAndBillingParams);
+        return array_merge($params, $filteredCustomerAndBillingParams);
     }
 
     private function addLanguageCode(array $params): array
@@ -105,5 +128,33 @@ class EcpPaymentPageBuilder
             $params['language_code'] = $language;
         }
         return $params;
+    }
+
+    /**
+     * Get embedded mode parameters including redirect URLs
+     * @param Cart $cart
+     * @return array
+     * @throws Exception
+     */
+    public function getEmbeddedModeParameters(Cart $cart): array
+    {
+        $additionalParams = [
+            'payment_id' => EcpPaymentService::generatePaymentID(),
+            'force_payment_method' => EcpPayment::CARD_PAYMENT_METHOD,
+            'target_element' => self::TARGET_ELEMENT,
+            'payment_methods_options' => json_encode(['additional_data' => ['embedded_mode' => true]]),
+            'redirect_success_url' => $this->context->link->getModuleLink(
+                'ecommpay',
+                'successpayment',
+                ['cart_id' => $cart->id]
+            ),
+            'redirect_success_enabled' => self::REDIRECT_AVAILABLE_ALWAYS,
+            'redirect_success_mode' => self::REDIRECT_PARENT_WINDOW,
+            'redirect_fail_url' => $this->context->link->getModuleLink('ecommpay', 'restorecart'),
+            'redirect_fail_enabled' => self::REDIRECT_AVAILABLE_ALWAYS,
+            'redirect_fail_mode' => self::REDIRECT_PARENT_WINDOW
+        ];
+
+        return $this->getCommonPaymentParameters($cart, $additionalParams);
     }
 }

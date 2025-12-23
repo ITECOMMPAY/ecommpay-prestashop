@@ -11,16 +11,13 @@ if (!defined('_PS_VERSION_')) {
 use Cart;
 use Configuration;
 use DateTime;
-use Db;
-use Order;
-use OrderSlip;
-use PrestaShopException;
-use Validate;
-use ecommpay\SignatureHandler;
+use Ecommpay\EcpOrderHelper;
 use ecommpay\exception\ProcessException;
 use Ecommpay\exceptions\EcpBadRequestException;
 use Ecommpay\exceptions\EcpDataNotFound;
 use Ecommpay\exceptions\EcpSignatureInvalidException;
+use OrderSlip;
+use Validate;
 
 class EcpCallbackProcessor
 {
@@ -57,7 +54,7 @@ class EcpCallbackProcessor
 
         $order = $this->getOrder($callback);
 
-        switch ($callback->getOperationType()){
+        switch ($callback->getOperationType()) {
             case self::OPERATION_TYPE_SALE:
                 $this->handleSale($callback, $order);
                 break;
@@ -74,7 +71,7 @@ class EcpCallbackProcessor
             throw new EcpBadRequestException('No payment id');
         }
 
-        if (!$order = EcpOrder::findByPaymentId($paymentId)) {
+        if (!$order = EcpOrderHelper::getOrderByPaymentId($paymentId)) {
             throw new EcpDataNotFound('Order not found with that payment id');
         }
 
@@ -136,7 +133,7 @@ class EcpCallbackProcessor
         return $slip;
     }
 
-    private function addTransactionsInfo(Order $order, EcpCallback $callback): void
+    private function addTransactionsInfo(EcpOrder $order, EcpCallback $callback): void
     {
         if (_PS_VERSION_ < 1.5) {
             return;
@@ -157,6 +154,10 @@ class EcpCallbackProcessor
         $payment->card_holder = $callback->getAccountCardHolder();
         $payment->card_brand = $callback->getAccountType();
         $payment->payment_method = $callback->getPaymentMethod();
+
+        if ($paymentId = $callback->getPaymentId()) {
+            $payment->ecp_payment_id = $paymentId;
+        }
 
         $payment->save();
     }

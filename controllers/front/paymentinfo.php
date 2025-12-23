@@ -7,16 +7,16 @@ if (!defined('_PS_VERSION_')) {
 }
 
 use Ecommpay\EcommpayConfig;
-use Ecommpay\EcpPaymentService;
 use Ecommpay\EcpPaymentPageBuilder;
+use Ecommpay\EcpPaymentService;
 
 class EcommpayPaymentInfoModuleFrontController extends ModuleFrontController
 {
     /**
      * This method is used to get the payment info for the payment page.
      * WARNING! Used only in embedded (iframe) mode.
-     * @throws Exception
      * @return never
+     * @throws Exception
      */
     public function initContent(): void
     {
@@ -50,15 +50,8 @@ class EcommpayPaymentInfoModuleFrontController extends ModuleFrontController
                 throw new Exception('Amount is not valid');
             }
 
-            $additionalParams = [
-                'payment_id' => EcpPaymentService::generatePaymentID(),
-                'force_payment_method' => 'card',
-                'target_element' => 'ecommpay-iframe',
-                'payment_methods_options' => json_encode(['additional_data' => ['embedded_mode' => true]]),
-            ];
-
             $paymentPageBuilder = new EcpPaymentPageBuilder($this->module, $this->context);
-            $params = $paymentPageBuilder->getCommonPaymentParameters($cart, $additionalParams);
+            $params = $paymentPageBuilder->getEmbeddedModeParameters($cart);
 
             echo json_encode([
                 'success' => true,

@@ -6,8 +6,6 @@ if (!defined('_PS_VERSION_')) {
     exit;
 }
 
-use Ecommpay;
-use Exception;
 use Ecommpay\exceptions\EcpBadRequestException;
 use Ecommpay\exceptions\EcpDataNotFound;
 use Ecommpay\exceptions\EcpSignatureInvalidException;
@@ -46,7 +44,7 @@ class EcommpayCallbackModuleFrontController extends ModuleFrontController
      * @param array $data The data to encode as JSON.
      * @param int $httpStatusCode The HTTP status code to send.
      */
-    protected function sendJsonResponse(array $data, $httpStatusCode = 200)
+    protected function sendJsonResponse(array $data, int $httpStatusCode = 200)
     {
         header('Content-Type: application/json');
         http_response_code($httpStatusCode);

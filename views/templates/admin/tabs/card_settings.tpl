@@ -16,13 +16,13 @@
     <div class="form-group col-md-6">
       <label for="ECOMMPAY_CARD_TITLE">{l s='Title' mod='ecommpay'}</label>
       <input type="text" id="ECOMMPAY_CARD_TITLE" name="ECOMMPAY_CARD_TITLE"
-             value="{$options.ECOMMPAY_CARD_TITLE|escape:'html':'UTF-8'}" />
+             value="{$options.ECOMMPAY_CARD_TITLE|default:''|escape:'html':'UTF-8'}" />
     </div>
 
     <div class="form-group col-md-6">
       <label for="ECOMMPAY_CARD_DESCRIPTION">{l s='Description' mod='ecommpay'}</label>
       <input type="text" id="ECOMMPAY_CARD_DESCRIPTION" name="ECOMMPAY_CARD_DESCRIPTION"
-             value="{$options.ECOMMPAY_CARD_DESCRIPTION|escape:'html':'UTF-8'}" />
+             value="{$options.ECOMMPAY_CARD_DESCRIPTION|default:''|escape:'html':'UTF-8'}" />
       <div class="text-muted">
         {l s='This is the description the customer sees during checkout' mod='ecommpay'}
       </div>
